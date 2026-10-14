@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { capturePage } from "@/lib/simulation/capture";
-import { analyzeUX } from "@/lib/simulation/analyze";
+import { runJourneyAnalysis } from "@/lib/worldmodel/journey";
+
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,16 +14,11 @@ export async function POST(request: NextRequest) {
     try {
       new URL(url);
     } catch {
-      return NextResponse.json(
-        { error: "Invalid URL format" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid URL format" }, { status: 400 });
     }
 
-    const capture = await capturePage(url);
-    const findings = await analyzeUX(capture);
-
-    return NextResponse.json({ url, findings });
+    const report = await runJourneyAnalysis(url);
+    return NextResponse.json(report);
   } catch (error) {
     console.error("Analysis error:", error);
     return NextResponse.json(
