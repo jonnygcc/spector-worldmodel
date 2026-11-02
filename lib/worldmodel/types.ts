@@ -6,6 +6,8 @@ export interface InteractiveElement {
   label: string;
   selector: string;
   coordinates: { x: number; y: number };
+  // "chrome": dentro de header, nav o footer; "content": el resto.
+  region?: "chrome" | "content";
 }
 
 export interface PageState {

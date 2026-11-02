@@ -12,7 +12,8 @@ export type GoalId =
   | "general_scan";
 
 export interface Goal {
-  id: GoalId;
+  // "custom": objetivo escrito por el usuario (goalFromText).
+  id: GoalId | "custom";
   label: string;
   description: string;
   successCriteria: string;
@@ -144,8 +145,21 @@ export function buildCustomPersona(description: string): Persona {
   };
 }
 
-export function pickAutoPersona(goalId: GoalId): Persona {
-  const map: Record<GoalId, string> = {
+// Objetivo escrito por el usuario en la barra. El texto es el objetivo tal
+// cual: los prompts lo reciben como descripción y criterio de éxito.
+export function goalFromText(text: string): Goal {
+  const goal = text.trim();
+  return {
+    id: "custom",
+    label: goal,
+    description: `The user wants to: ${goal}`,
+    successCriteria: `The user reaches the page, form or flow where they can complete this: ${goal}`,
+  };
+}
+
+export function pickAutoPersona(goalId: GoalId | "custom"): Persona {
+  const map: Record<GoalId | "custom", string> = {
+    custom: "first_timer",
     signup: "first_timer",
     purchase: "rushed",
     find_info: "rushed",
@@ -160,6 +174,9 @@ export function pickAutoPersona(goalId: GoalId): Persona {
 // ============================================================
 // ROUTES: los distintos caminos hacia un mismo objetivo
 // ============================================================
+// Qué debería pasar con la URL tras la acción de un paso.
+export type NavigationExpectation = "same-page" | "navigate" | "unknown";
+
 export interface RouteStep {
   order: number;
   type: "click" | "type" | "press" | "scroll";
@@ -167,20 +184,66 @@ export interface RouteStep {
   targetElement: string;
   targetType: InteractiveElement["type"];
   value?: string;
+  // Expectativa verificable sin el modelo, emitida por el dreamer.
+  navigationExpected?: NavigationExpectation;
+  // Fragmento de ruta esperado tras la acción ("/cart", "/products/"), o null.
+  expectedUrlHint?: string | null;
+  // 1 a 3 textos que deberían aparecer en la página tras la acción.
+  expectedSignals?: string[];
 }
 
+// Resultado de comprobar la expectativa de un paso contra la página real.
+export type StepCheck = "match" | "partial" | "diverged";
+
+// Comparación predicho/real de un paso ejecutado (o intentado).
 export interface RouteStepResult {
+  // El paso que se intentó, tal como estaba en el plan en ese momento (el
+  // inicial o el de un re-sueño).
+  step: RouteStep;
+  // Plan del que salió el paso: 0 = el sueño inicial, 1 y 2 = re-sueños.
+  plan: number;
+  // Elemento que se encontró para el targetElement, y su puntaje de
+  // emparejamiento (0–1). null si no se encontró ninguno.
+  found: { label: string; score: number } | null;
+  // Otros candidatos con puntaje parecido al elegido: si los hay, el paso
+  // era ambiguo y se re-soñó sin actuar.
+  rivals?: { label: string; score: number }[];
   executed: boolean;
   stateChanged: boolean;
+  // Comprobaciones tras la acción y su veredicto.
+  check: StepCheck;
+  checks: {
+    urlChanged: boolean;
+    urlAsExpected: boolean | null; // null: la expectativa era "unknown"
+    urlHintMatched: boolean | null; // null: no había pista
+    signalsFound: string[];
+    signalsMissing: string[];
+    nextElementFound: boolean | null; // null: era el último paso
+  };
   actualUrl: string;
   actualTitle: string;
   screenshot: string;
   realFriction: number;
   whatHappened: string;
+  // Este paso disparó un re-sueño: antes de actuar (elemento dudoso o
+  // ambiguo) o después (la página no hizo lo esperado).
+  redream?: "before-action" | "after-action";
+  // Tropiezo del motor, no paso del sitio: se guarda y se muestra en la
+  // tira, pero no suma a pasos, tiempo ni fricción.
+  discarded?: boolean;
 }
+
+// Cómo terminó una ruta ejecutada.
+// - reached: llegó al objetivo.
+// - blocked: el sitio la detuvo (login, pago, protección anti-bots).
+// - unreachable: no encontró camino tras replanificar.
+export type RouteOutcome = "reached" | "blocked" | "unreachable";
 
 export interface Route {
   id: string;
+  // Nombre en inglés para mostrar; entryPoint es la etiqueta literal del
+  // elemento, en el idioma del sitio.
+  name?: string;
   entryPoint: string;
   entryDescription: string;
   howUsersFindIt: string;
@@ -193,6 +256,17 @@ export interface Route {
   stepResults?: RouteStepResult[];
   realFriction?: number;
   reachedGoal?: boolean;
+  outcome?: RouteOutcome;
+  // Si el navegador tuvo que re-soñar la ruta desde la página real.
+  replanned?: boolean;
+  replanCount?: number;
+  // De esos re-sueños, cuántos se dispararon antes de actuar.
+  replansBeforeAction?: number;
+  // Pasos del camino que llevó al objetivo (sin los descartados).
+  pathSteps?: number;
+  // La probabilidad del finder describía el camino del plan inicial; si
+  // se replanificó, el camino recorrido es otro y queda como estimada.
+  probabilityEstimated?: boolean;
   verdict?: string;
 }
 
@@ -206,6 +280,9 @@ export interface RouteComparison {
   personaMode: PersonaMode;
   initialState: PageState;
   routes: Route[];
+  // Rutas que propuso el finder y sobrevivieron al filtro del criterio de
+  // éxito (de ellas se ejecuta un subconjunto en el navegador).
+  routesFound?: number;
   bestRouteId: string | null;
   mostLikelyRouteId: string | null;
   verdict: string;

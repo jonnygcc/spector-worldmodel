@@ -20,6 +20,35 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Tokens de diseño
+
+Los tokens viven en `app/globals.css`, dentro de `@theme` (Tailwind v4), y copian una a una las variables del documento de Paper "Spector | World Model": mismo nombre, mismo valor. Si cambias un valor, cámbialo primero en Paper.
+
+### La escala de spacing sobrescribe la de Tailwind
+
+Por defecto, en Tailwind v4 `p-24` vale `24 × 0.25rem = 96px`. Aquí no: `--spacing-24` está definido en el tema, y Tailwind usa el valor del tema antes que el multiplicador.
+
+| Clase | Con los tokens de Spector | Tailwind por defecto |
+|---|---|---|
+| `p-4` | 4px | 16px |
+| `gap-8` | 8px | 32px |
+| `p-24` | 24px | 96px |
+| `mt-96` | 96px | 384px |
+
+Los valores definidos son 4, 8, 12, 16, 24, 32, 48, 64, 96 y 140. Cualquier otro número sigue usando el multiplicador de Tailwind (`p-6` = 24px, `p-20` = 80px), así que usa solo los de la escala.
+
+### Cifras tabulares
+
+Regla del sistema: toda cifra que se lee en columna o se compara con otra (tiempo, probabilidad, pasos, fricción, conteos, horas) lleva la clase `tabular-nums` (`font-variant-numeric: tabular-nums`). Sin ella, los dígitos de Space Grotesk tienen anchos distintos y las columnas de la tabla del reporte se desalinean. La utilidad la trae Tailwind v4; no hay que definirla.
+
+### Tipografía
+
+Space Grotesk (400, 500, 600) se carga en `app/layout.tsx` con `next/font`, self-hosted, y expone la variable `--font-space-grotesk`. Los tokens `--font-heading` y `--font-body` apuntan a ella (`var(--font-space-grotesk), sans-serif`); no uses el nombre literal "Space Grotesk", porque `next/font` renombra la familia al cargarla.
+
+### Interlineado
+
+Paper solo acepta porcentajes, así que allí los `leading-*` están como 115%, 125% y 150%. En `globals.css` se escriben como 1.15, 1.25 y 1.5: un número sin unidad lo recalcula cada elemento según su tamaño, mientras que un porcentaje se convierte en píxeles fijos y los hijos heredan ese valor.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

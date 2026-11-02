@@ -18,7 +18,12 @@ export async function launchBrowser(): Promise<Browser> {
  */
 const TAG_ELEMENTS_SCRIPT = `
 (() => {
-  let counter = 0;
+  // El contador vive en la página: si empezara en 0 en cada llamada, los
+  // elementos que aparecen después (un desplegable) repetirían ids ya
+  // usados, y el selector resolvería al primero del DOM. En Google, el
+  // "Buscar con Google" del desplegable salía como sp-0, igual que el
+  // botón de Aplicaciones, y se pulsaba ese.
+  let counter = window.__spectorCounter || 0;
 
   const isVisible = (el) => {
     const rect = el.getBoundingClientRect();
@@ -48,6 +53,7 @@ const TAG_ELEMENTS_SCRIPT = `
       el.setAttribute('data-spector-id', 'sp-' + (counter++));
     });
   });
+  window.__spectorCounter = counter;
 })()
 `;
 
@@ -88,14 +94,17 @@ const EXTRACT_STATE_SCRIPT = `
       type: type,
       label: label,
       selector: '[data-spector-id="' + id + '"]',
-      coordinates: { x: Math.round(rect.x), y: Math.round(rect.y) }
+      coordinates: { x: Math.round(rect.x), y: Math.round(rect.y) },
+      region: el.closest('header, nav, footer, [role="navigation"], [role="banner"], [role="contentinfo"]') ? 'chrome' : 'content'
     });
   });
 
+  // Hasta 100 en orden del documento. Antes eran 40, y en una página de
+  // categoría eran todos de la cabecera y los filtros: ningún producto.
   return {
     metaDescription: metaDescription,
     headings: headings,
-    interactiveElements: interactiveElements.slice(0, 40)
+    interactiveElements: interactiveElements.slice(0, 100)
   };
 })()
 `;
@@ -139,11 +148,18 @@ export async function visitAndCapture(url: string): Promise<{
   state: PageState;
 }> {
   const browser = await launchBrowser();
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForTimeout(1200);
-  const state = await captureState(page);
-  return { browser, page, state };
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForTimeout(1200);
+    const state = await captureState(page);
+    return { browser, page, state };
+  } catch (error) {
+    // Si el sitio no carga, el navegador no se cerraba nunca: cada intento
+    // fallido dejaba un Chromium abierto.
+    await browser.close().catch(() => {});
+    throw error;
+  }
 }
 
 const buildFindElementScript = (label: string, type: string): string => `
@@ -152,7 +168,8 @@ const buildFindElementScript = (label: string, type: string): string => `
   const type = ${JSON.stringify(type)};
   const candidates = [];
 
-  const normalize = (s) => s.replace(/\\s+/g, ' ').trim().toLowerCase();
+  // bag y basket valen lo mismo que cart: "Add to Cart" encuentra "Add to bag".
+  const normalize = (s) => s.replace(/\\s+/g, ' ').trim().toLowerCase().replace(/\\b(bag|basket)\\b/g, 'cart');
   const stripNumbers = (s) => s.replace(/\\d+/g, '#').trim();
 
   const targetNorm = normalize(target);
@@ -200,24 +217,82 @@ const buildFindElementScript = (label: string, type: string): string => `
 
     if (score < 0) return;
 
-    candidates.push({ id: id, label: elLabel, score: score });
+    // Cobertura: qué parte de la etiqueta más larga comparten. "Search"
+    // empieza igual que "search button", pero solo cubre la mitad.
+    const coverage = Math.min(a.length, targetNorm.length) / Math.max(a.length, targetNorm.length);
+
+    // ¿Es lo que de verdad se pulsa en su centro? Google tiene dos botones
+    // "Buscar con Google" y uno queda tapado por el desplegable de
+    // sugerencias: a igual puntaje gana el que está encima.
+    const rect = el.getBoundingClientRect();
+    const hitEl = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    const onTop = !!hitEl && (hitEl === el || el.contains(hitEl));
+
+    candidates.push({ id: id, label: elLabel, norm: a, score: score, coverage: coverage, onTop: onTop });
   });
 
   if (candidates.length === 0) return null;
-  candidates.sort((x, y) => y.score - x.score);
-  return '[data-spector-id="' + candidates[0].id + '"]';
+  candidates.sort((x, y) => y.score - x.score || (y.onTop ? 1 : 0) - (x.onTop ? 1 : 0));
+
+  // Los mejores, uno por etiqueta: dos botones "Google Search" son el
+  // mismo destino, no una ambigüedad.
+  const seen = {};
+  const top = [];
+  candidates.forEach((c) => {
+    if (top.length >= 5 || seen[c.norm]) return;
+    seen[c.norm] = true;
+    top.push({
+      selector: '[data-spector-id="' + c.id + '"]',
+      label: c.label.replace(/\\s+/g, ' ').trim().slice(0, 80),
+      score: c.score,
+      coverage: c.coverage
+    });
+  });
+  return top;
 })()
 `;
+
+export interface ElementCandidate {
+  selector: string;
+  label: string;
+  // Puntaje de emparejamiento, 0–1 (ver findElementMatch).
+  score: number;
+  // Longitud compartida entre la etiqueta y la buscada, 0–1.
+  coverage: number;
+}
+
+// Los mejores candidatos para una etiqueta, uno por etiqueta distinta y
+// de mayor a menor puntaje. Vacío si nada se parece.
+export async function findElementCandidates(
+  page: Page,
+  targetLabel: string,
+  targetType: InteractiveElement["type"]
+): Promise<ElementCandidate[]> {
+  await tagInteractiveElements(page);
+  const found = (await page.evaluate(buildFindElementScript(targetLabel, targetType))) as
+    | ElementCandidate[]
+    | null;
+  return (found ?? []).map((c) => ({ ...c, score: Math.max(0, Math.min(1, c.score / 1000)) }));
+}
+
+// Mejor candidato para una etiqueta, con su puntaje de emparejamiento
+// normalizado a 0–1 (el script puntúa de 0 a 1000: 1 = etiqueta idéntica,
+// 0.9 = igual salvo números, 0.7 = una empieza por la otra, 0.5 = la
+// contiene, 0.4 = está contenida, 0.3 = parecido sin números).
+export async function findElementMatch(
+  page: Page,
+  targetLabel: string,
+  targetType: InteractiveElement["type"]
+): Promise<{ selector: string; label: string; score: number } | null> {
+  const [best] = await findElementCandidates(page, targetLabel, targetType);
+  return best ? { selector: best.selector, label: best.label, score: best.score } : null;
+}
 
 export async function retagAndFindElement(
   page: Page,
   targetLabel: string,
   targetType: InteractiveElement["type"]
 ): Promise<string | null> {
-  await tagInteractiveElements(page);
-
-  const script = buildFindElementScript(targetLabel, targetType);
-  const selector = (await page.evaluate(script)) as string | null;
-
-  return selector;
+  const match = await findElementMatch(page, targetLabel, targetType);
+  return match ? match.selector : null;
 }

@@ -5,11 +5,30 @@ import { PROMPTS } from "../llm/prompts";
 
 export interface RouteEntry {
   id: string;
+  // Nombre de la ruta en inglés, para mostrar. entryPoint es la etiqueta
+  // literal del elemento (en el idioma del sitio) y sirve para encontrarlo.
+  name?: string;
   entryPoint: string;
   entryType: InteractiveElement["type"];
   entryDescription: string;
   howUsersFindIt: string;
+  // Dónde termina la ruta y si eso cumple el criterio de éxito. Las que
+  // no lo cumplen se descartan.
+  endState?: string;
+  meetsCriteria?: boolean;
+  // Cómo lleva al objetivo y si de verdad lo sirve. Las que no (una
+  // búsqueda cuando el objetivo es iniciar sesión) se descartan antes de
+  // ejecutar nada.
+  goalLink?: string;
+  servesGoal?: boolean;
   probability: number;
+}
+
+// Resultado del finder: las rutas válidas y las candidatas que se
+// descartaron por no servir al objetivo (para explicar un resultado vacío).
+export interface RouteSearch {
+  routes: RouteEntry[];
+  offGoal: string[];
 }
 
 const MAX_ROUTES = 5;
@@ -24,7 +43,7 @@ export async function findRoutes(
   goal: Goal,
   persona: Persona,
   maxAttempts = 2
-): Promise<RouteEntry[]> {
+): Promise<RouteSearch> {
   const elements = state.interactiveElements.slice(0, 30);
 
   const elementLabels = elements
@@ -47,18 +66,36 @@ export async function findRoutes(
     .replace("{SUCCESS_CRITERIA}", goal.successCriteria)
     .replace("{PERSONA_DESCRIPTION}", buildPersonaDescription(persona))
     .replace("{ELEMENT_LABELS}", elementLabels)
-    .replace("{PAGE_CONTEXT}", pageContext);
+    .replace("{PAGE_CONTEXT}", pageContext)
+    .replaceAll("{GOAL_LABEL}", goal.label);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const response = await askGemini(prompt);
     const cleaned = cleanJsonResponse(response);
 
     try {
-      const raw = JSON.parse(cleaned) as RouteEntry[];
+      const parsed = JSON.parse(cleaned) as RouteEntry[];
 
-      if (!Array.isArray(raw) || raw.length === 0) {
+      if (!Array.isArray(parsed)) {
         continue;
       }
+
+      // Solo rutas que sirven al objetivo y terminan cumpliendo el criterio
+      // de éxito; sin servesGoal explícito, tampoco. Una lista vacía es un
+      // resultado válido: no hay camino al objetivo, y no se rellena con
+      // rutas ajenas.
+      const offGoal: string[] = [];
+      const raw = parsed.filter((route) => {
+        if (route.servesGoal !== true) {
+          offGoal.push(route.name || route.entryPoint);
+          console.log(`[Routes] Discarded "${route.entryPoint}": unrelated to the goal (${route.goalLink ?? "no goal link"})`);
+          return false;
+        }
+        if (route.meetsCriteria === true) return true;
+        console.log(`[Routes] Discarded "${route.entryPoint}": does not meet the success criteria (${route.endState ?? "no end state"})`);
+        return false;
+      });
+      if (raw.length === 0) return { routes: [], offGoal };
 
       const validLabels = new Map(
         elements.map((el) => [el.label.toLowerCase(), el.label])
@@ -96,15 +133,16 @@ export async function findRoutes(
       });
 
       if (unique.length === 0) {
-        continue;
+        return { routes: [], offGoal };
       }
 
-      return unique
-        .sort((a, b) => (b.probability || 0) - (a.probability || 0))
-        .slice(0, MAX_ROUTES);
-    } catch (err) {
+      return {
+        routes: unique.sort((a, b) => (b.probability || 0) - (a.probability || 0)).slice(0, MAX_ROUTES),
+        offGoal,
+      };
+    } catch {
     }
   }
 
-  return [];
+  return { routes: [], offGoal: [] };
 }

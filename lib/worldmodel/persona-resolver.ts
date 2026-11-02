@@ -47,7 +47,7 @@ async function buildPersonaFromDescription(description: string): Promise<Persona
 
 export async function resolvePersona(
   mode: PersonaMode,
-  goalId: GoalId,
+  goalId: GoalId | "custom",
   customDescription?: string
 ): Promise<PersonaSelection> {
   if (mode === "personal" && customDescription && customDescription.trim().length > 10) {
