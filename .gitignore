@@ -56,8 +56,6 @@ next-env.d.ts
 # - docs/auditoria/: reports of this audit, kept on disk
 # - design/: material for an article
 # - .claude/: personal tooling
-# - _archive/: old MVP (results page, /api/goal, components/ui), kept on disk
 docs/auditoria/
 design/
 .claude/
-_archive/

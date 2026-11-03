@@ -12,8 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Old MVP, kept on disk and out of the repo.
-    "_archive/**",
   ]),
 ]);
 
