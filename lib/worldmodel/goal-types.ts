@@ -1,4 +1,4 @@
-import { InteractiveElement, PageState, UserProfile } from "./types";
+import { InteractiveElement, PageState } from "./types";
 
 // ============================================================
 // GOALS: que quiere lograr el usuario en el sitio
@@ -132,17 +132,6 @@ export interface PersonaSelection {
   mode: PersonaMode;
   customDescription?: string;
   resolved: Persona;
-}
-
-export function buildCustomPersona(description: string): Persona {
-  return {
-    id: "custom",
-    label: "Custom persona",
-    description,
-    traits: [],
-    patience: "medium",
-    techSavvy: "medium",
-  };
 }
 
 // Objetivo escrito por el usuario en la barra. El texto es el objetivo tal
@@ -287,12 +276,4 @@ export interface RouteComparison {
   mostLikelyRouteId: string | null;
   verdict: string;
   recommendation: string;
-}
-
-// Compatibilidad con el perfil de usuario existente
-export function personaToUserProfile(persona: Persona): UserProfile {
-  if (persona.id === "rushed") return "rushed";
-  if (persona.id === "returning") return "returning";
-  if (persona.id === "first_timer" || persona.id === "non_technical") return "new";
-  return "explorer";
 }

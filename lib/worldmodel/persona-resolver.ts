@@ -3,7 +3,6 @@ import {
   PersonaMode,
   PersonaSelection,
   GoalId,
-  AUTO_PERSONAS,
   pickAutoPersona,
 } from "./goal-types";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
@@ -70,8 +69,4 @@ export function describePersonaForPrompt(persona: Persona): string {
   const traits =
     persona.traits.length > 0 ? ` Behavioral traits: ${persona.traits.join(", ")}.` : "";
   return `${persona.label} — ${persona.description}${traits} Patience level: ${persona.patience}. Technical skill: ${persona.techSavvy}.`;
-}
-
-export function listAutoPersonas(): Persona[] {
-  return AUTO_PERSONAS;
 }
