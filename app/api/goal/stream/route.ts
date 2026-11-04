@@ -6,6 +6,7 @@ import {
   validateAnalysisRequest,
   type AnalysisEvent,
 } from "@/lib/worldmodel/analysis-events";
+import { assertAllowedUrl, URL_NOT_ALLOWED } from "@/lib/security/url-guard";
 
 export const maxDuration = 300;
 
@@ -29,6 +30,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
   const { url, goal, personaMode, customPersona } = validation.request;
+
+  // Esquema, host, puerto y la IP resuelta, antes de abrir el navegador.
+  // El proxy del navegador vuelve a validar cada conexión (redirecciones
+  // incluidas).
+  try {
+    await assertAllowedUrl(url);
+  } catch {
+    return NextResponse.json({ error: URL_NOT_ALLOWED }, { status: 400 });
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

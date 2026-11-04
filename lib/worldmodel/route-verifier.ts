@@ -16,6 +16,7 @@ import { describePersonaForPrompt } from "./persona-resolver";
 import { redreamFromState } from "./route-dreamer";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
+import { gotoAllowed } from "../security/url-guard";
 
 const ROUTES_TO_VERIFY = 2;
 
@@ -282,7 +283,7 @@ async function verifyRoute(
   };
 
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await gotoAllowed(page, url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1200);
     await page.keyboard.press("Escape").catch(() => {});
 

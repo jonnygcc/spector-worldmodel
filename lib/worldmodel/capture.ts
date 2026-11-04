@@ -1,14 +1,14 @@
-import { chromium, Browser, Page } from "playwright-core";
+import { Browser, Page } from "playwright-core";
 import { PageState, InteractiveElement } from "./types";
+import { gotoAllowed, launchGuardedChromium } from "../security/url-guard";
 
 const BROWSER_PATH =
   "C:/Users/user/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe";
 
+// El navegador del análisis sale a la red solo por el proxy del validador
+// de URLs (lib/security/url-guard.ts).
 export async function launchBrowser(): Promise<Browser> {
-  return await chromium.launch({
-    executablePath: BROWSER_PATH,
-    headless: true,
-  });
+  return await launchGuardedChromium(BROWSER_PATH);
 }
 
 /**
@@ -150,7 +150,7 @@ export async function visitAndCapture(url: string): Promise<{
   const browser = await launchBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await gotoAllowed(page, url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1200);
     const state = await captureState(page);
     return { browser, page, state };
