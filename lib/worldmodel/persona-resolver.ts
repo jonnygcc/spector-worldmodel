@@ -7,11 +7,16 @@ import {
 } from "./goal-types";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
+import { fill } from "../llm/prompt-data";
+import { PERSONA_SCHEMA } from "../llm/schemas";
 
 async function buildPersonaFromDescription(description: string): Promise<Persona> {
-  const prompt = PROMPTS.buildPersona.replace("{DESCRIPTION}", description);
-
-  const response = await askGemini(prompt);
+  // La descripción la escribe el usuario, no el sitio: va en las
+  // instrucciones. Sin page_data.
+  const response = await askGemini({
+    system: fill(PROMPTS.buildPersona, { DESCRIPTION: description }),
+    schema: PERSONA_SCHEMA,
+  });
   const cleaned = cleanJsonResponse(response);
 
   try {

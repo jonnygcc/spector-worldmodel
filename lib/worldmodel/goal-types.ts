@@ -1,4 +1,5 @@
 import { InteractiveElement, PageState } from "./types";
+import type { GoalSignals } from "./goal-evidence";
 
 // ============================================================
 // GOALS: que quiere lograr el usuario en el sitio
@@ -256,6 +257,11 @@ export interface Route {
   // La probabilidad del finder describía el camino del plan inicial; si
   // se replanificó, el camino recorrido es otro y queda como estimada.
   probabilityEstimated?: boolean;
+  // Solo en rutas "reached": si el código encontró en la página final las
+  // señales del objetivo (goal-evidence.ts). Sin esa evidencia la ruta es
+  // UNVERIFIED y no puede ser la recomendada.
+  goalVerified?: boolean;
+  goalSignalsFound?: string[];
   verdict?: string;
 }
 
@@ -272,6 +278,8 @@ export interface RouteComparison {
   // Rutas que propuso el finder y sobrevivieron al filtro del criterio de
   // éxito (de ellas se ejecuta un subconjunto en el navegador).
   routesFound?: number;
+  // Señales del objetivo, pedidas antes de visitar el sitio.
+  goalSignals?: GoalSignals;
   bestRouteId: string | null;
   mostLikelyRouteId: string | null;
   verdict: string;

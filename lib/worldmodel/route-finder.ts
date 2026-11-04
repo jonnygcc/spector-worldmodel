@@ -2,6 +2,8 @@ import { PageState, InteractiveElement } from "./types";
 import { Goal, Persona } from "./goal-types";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
+import { fill } from "../llm/prompt-data";
+import { ROUTES_SCHEMA } from "../llm/schemas";
 
 export interface RouteEntry {
   id: string;
@@ -46,31 +48,25 @@ export async function findRoutes(
 ): Promise<RouteSearch> {
   const elements = state.interactiveElements.slice(0, 30);
 
-  const elementLabels = elements
-    .map((el) => `- "${el.label}" (${el.type})`)
-    .join("\n");
-
-  const pageContext = JSON.stringify(
-    {
+  // Instrucciones con el objetivo y el perfil; la página, como datos.
+  const request = {
+    system: fill(PROMPTS.findRoutes, {
+      GOAL_DESCRIPTION: goal.description,
+      SUCCESS_CRITERIA: goal.successCriteria,
+      PERSONA_DESCRIPTION: buildPersonaDescription(persona),
+      GOAL_LABEL: goal.label,
+    }),
+    pageData: {
       url: state.url,
       title: state.title,
-      metaDescription: state.metaDescription,
       headings: state.headings.slice(0, 10),
+      elements: elements.map((el) => ({ label: el.label, type: el.type })),
     },
-    null,
-    2
-  );
-
-  const prompt = PROMPTS.findRoutes
-    .replace("{GOAL_DESCRIPTION}", goal.description)
-    .replace("{SUCCESS_CRITERIA}", goal.successCriteria)
-    .replace("{PERSONA_DESCRIPTION}", buildPersonaDescription(persona))
-    .replace("{ELEMENT_LABELS}", elementLabels)
-    .replace("{PAGE_CONTEXT}", pageContext)
-    .replaceAll("{GOAL_LABEL}", goal.label);
+    schema: ROUTES_SCHEMA,
+  };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const response = await askGemini(prompt);
+    const response = await askGemini(request);
     const cleaned = cleanJsonResponse(response);
 
     try {

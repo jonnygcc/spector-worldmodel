@@ -8,6 +8,9 @@ const STYLE: Record<Status, string> = {
   unreachable: "bg-warning-10 text-warning",
   success: "bg-success-10 text-success",
   friction: "bg-warning-10 text-warning",
+  // Habla de la evidencia, no del resultado: contorno gris neutro, sin
+  // relleno, para que no se lea como un tipo de resultado más.
+  unverified: "bg-transparent text-neutral-600 ring-1 ring-inset ring-neutral-400",
 };
 
 const MEANING: Record<Status, string> = {
@@ -17,6 +20,7 @@ const MEANING: Record<Status, string> = {
   unreachable: "No path to the goal was found, even after re-planning.",
   success: "Predicted to reach the goal.",
   friction: "Predicted to reach the goal, with friction along the way.",
+  unverified: "Reached the end of the route, but Spector couldn't confirm the goal on the final page.",
 };
 
 // Un mismo estado se lee distinto según de dónde viene: BLOCKED de un
@@ -25,7 +29,7 @@ const PREDICTED_BLOCKED = "Predicted to stop before the goal.";
 
 // Estado de la ruta: RECOMMENDED (verde), EXECUTED (azul), BLOCKED (rojo:
 // el sitio la detuvo), UNREACHABLE (ámbar: no encontró camino tras
-// replanificar). Cada uno
+// replanificar), UNVERIFIED (contorno gris: llegó, sin evidencia). Cada uno
 // explica qué significa en un tooltip. El badge vive dentro del botón de
 // la fila, así que no es enfocable: `tooltipId` permite que la fila lo
 // enlace con aria-describedby y lo muestre al recibir el foco.

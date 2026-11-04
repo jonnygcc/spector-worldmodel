@@ -1,9 +1,12 @@
 import { PageState } from "./types";
-import { Goal, Persona, RouteStep, Route, RouteStepResult, NavigationExpectation } from "./goal-types";
+import { Goal, Persona, RouteStep, Route, RouteStepResult } from "./goal-types";
 import { RouteEntry } from "./route-finder";
 import { describePersonaForPrompt } from "./persona-resolver";
+import { sanitizeStep, sanitizeSteps } from "./step-guard";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
+import { fill } from "../llm/prompt-data";
+import { DREAM_SCHEMA, REDREAM_SCHEMA } from "../llm/schemas";
 
 const MAX_STEPS_PER_ROUTE = 6;
 const MAX_REDREAM_STEPS = 5;
@@ -16,54 +19,27 @@ interface DreamedRoute {
   reachesGoal: boolean;
 }
 
-function pageContextOf(state: PageState): string {
-  return JSON.stringify(
-    {
-      url: state.url,
-      title: state.title,
-      metaDescription: state.metaDescription,
-      headings: state.headings.slice(0, 10),
-    },
-    null,
-    2
-  );
-}
-
-// Para re-soñar: primero los elementos del contenido de la página (los
-// productos de un listado, el botón de compra) y luego los de la cabecera
-// y el pie, que en una página interior suelen ser los mismos de siempre.
-function contentFirstLabels(state: PageState): string {
+// La página como datos para el modelo (page_data). Primero los elementos
+// del contenido (los productos de un listado, el botón de compra) y luego
+// los de la cabecera y el pie, que en una página interior suelen ser los
+// mismos de siempre.
+function pageDataOf(state: PageState) {
   const content = state.interactiveElements.filter((el) => el.region !== "chrome").slice(0, 60);
   const chrome = state.interactiveElements.filter((el) => el.region === "chrome").slice(0, 25);
-  return [...content, ...chrome].map((el) => `- "${el.label}" (${el.type})`).join("\n");
-}
-
-// Deja cada paso con su expectativa verificable en forma válida: el
-// modelo a veces omite campos o devuelve tipos raros.
-function normalizeStep(raw: Partial<RouteStep>, order: number): RouteStep {
-  const nav: NavigationExpectation =
-    raw.navigationExpected === "navigate" || raw.navigationExpected === "same-page"
-      ? raw.navigationExpected
-      : "unknown";
-  const hint =
-    typeof raw.expectedUrlHint === "string" && raw.expectedUrlHint.trim()
-      ? raw.expectedUrlHint.trim()
-      : null;
-  const signals = Array.isArray(raw.expectedSignals)
-    ? raw.expectedSignals.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()).slice(0, 3)
-    : [];
   return {
-    order,
-    type: raw.type ?? "click",
-    description: raw.description ?? "",
-    targetElement: raw.targetElement ?? "",
-    targetType: raw.targetType ?? "button",
-    value: raw.value,
-    navigationExpected: nav,
-    expectedUrlHint: hint,
-    expectedSignals: signals,
+    url: state.url,
+    title: state.title,
+    headings: state.headings.slice(0, 10),
+    elements: [...content, ...chrome].map((el) => ({ label: el.label, type: el.type })),
   };
 }
+
+// Instrucciones con valores de confianza: objetivo, criterio y perfil.
+const trustedValues = (goal: Goal, persona: Persona) => ({
+  GOAL_DESCRIPTION: goal.description,
+  SUCCESS_CRITERIA: goal.successCriteria,
+  PERSONA_DESCRIPTION: describePersonaForPrompt(persona),
+});
 
 async function dreamSingleRoute(
   state: PageState,
@@ -71,28 +47,25 @@ async function dreamSingleRoute(
   persona: Persona,
   entry: RouteEntry
 ): Promise<DreamedRoute | null> {
-  const prompt = PROMPTS.dreamRoute
-    .replace("{GOAL_DESCRIPTION}", goal.description)
-    .replace("{SUCCESS_CRITERIA}", goal.successCriteria)
-    .replace("{PERSONA_DESCRIPTION}", describePersonaForPrompt(persona))
-    .replace("{PAGE_CONTEXT}", pageContextOf(state))
+  const response = await askGemini({
+    system: fill(PROMPTS.dreamRoute, trustedValues(goal, persona)),
     // El primer estado real, con los elementos del contenido primero (como
     // al re-soñar): con los 25 primeros del DOM, casi todos de la cabecera,
     // el plan salía genérico y divergía en el primer paso.
-    .replace("{ELEMENT_LABELS}", contentFirstLabels(state))
-    .replace("{ENTRY_POINT}", entry.entryPoint)
-    .replace("{ENTRY_TYPE}", entry.entryType)
-    .replace("{ENTRY_DESCRIPTION}", entry.entryDescription);
-
-  const response = await askGemini(prompt);
+    pageData: {
+      ...pageDataOf(state),
+      entry: { label: entry.entryPoint, type: entry.entryType, action: entry.entryDescription },
+    },
+    schema: DREAM_SCHEMA,
+  });
   const cleaned = cleanJsonResponse(response);
 
   try {
-    const parsed = JSON.parse(cleaned) as DreamedRoute;
+    const parsed = JSON.parse(cleaned) as Omit<DreamedRoute, "steps"> & { steps?: unknown };
 
-    const steps = (Array.isArray(parsed.steps) ? parsed.steps : [])
-      .slice(0, MAX_STEPS_PER_ROUTE)
-      .map((step, i) => normalizeStep(step, i + 1));
+    // Pasos validados (step-guard): los de tipo, tecla o elemento
+    // inválidos se descartan.
+    const steps = sanitizeSteps(parsed.steps, MAX_STEPS_PER_ROUTE);
 
     // Forzamos que el paso 1 use el punto de entrada real
     if (steps.length > 0) {
@@ -116,18 +89,17 @@ async function dreamSingleRoute(
       reachesGoal: parsed.reachesGoal === true,
     };
   } catch {
+    const fallback = sanitizeStep(
+      {
+        type: "click",
+        description: entry.entryDescription,
+        targetElement: entry.entryPoint,
+        targetType: entry.entryType,
+      },
+      1
+    );
     return {
-      steps: [
-        normalizeStep(
-          {
-            type: "click",
-            description: entry.entryDescription,
-            targetElement: entry.entryPoint,
-            targetType: entry.entryType,
-          },
-          1
-        ),
-      ],
+      steps: fallback ? [fallback] : [],
       predictedFriction: 0.5,
       frictionReason: "Prediction engine failed for this route",
       predictedOutcome: "Could not predict the outcome of this route.",
@@ -147,7 +119,7 @@ export async function dreamAllRoutes(
   for (const entry of entries) {
     console.log(`[Routes] Dreaming route ${entry.id}: "${entry.entryPoint}"...`);
     const dreamed = await dreamSingleRoute(state, goal, persona, entry);
-    if (!dreamed) continue;
+    if (!dreamed || dreamed.steps.length === 0) continue;
 
     routes.push({
       id: entry.id,
@@ -177,7 +149,9 @@ export interface Redream {
 
 // Llama al dreamer con el estado real recién capturado, el objetivo, el
 // perfil y los pasos ya ejecutados, y pide solo los pasos que faltan desde
-// ahí. Sin pasos y sin objetivo cumplido = no hay camino desde aquí.
+// ahí. Sin pasos y sin objetivo cumplido = no hay camino desde aquí. Los
+// pasos hechos y el motivo llevan texto del sitio (títulos, etiquetas):
+// van en page_data, no en las instrucciones.
 export async function redreamFromState(
   state: PageState,
   goal: Goal,
@@ -185,35 +159,25 @@ export async function redreamFromState(
   done: RouteStepResult[],
   reason: string
 ): Promise<Redream> {
-  const executed =
-    done.length === 0
-      ? "(none yet)"
-      : done
-          .map(
-            (r, i) =>
-              `${i + 1}. ${r.step.description} — target "${r.step.targetElement}" — ${r.whatHappened} (check: ${r.check})`
-          )
-          .join("\n");
-
-  const prompt = PROMPTS.redreamRoute
-    .replace("{GOAL_DESCRIPTION}", goal.description)
-    .replace("{SUCCESS_CRITERIA}", goal.successCriteria)
-    .replace("{PERSONA_DESCRIPTION}", describePersonaForPrompt(persona))
-    .replace("{EXECUTED_STEPS}", executed)
-    .replace("{REASON}", reason)
-    .replace("{PAGE_CONTEXT}", pageContextOf(state))
-    .replace("{ELEMENT_LABELS}", contentFirstLabels(state));
+  const stepsDone = done.map((r, i) => ({
+    order: i + 1,
+    action: r.step.description,
+    target: r.step.targetElement,
+    whatHappened: r.whatHappened,
+    check: r.check,
+  }));
 
   try {
-    const response = await askGemini(prompt);
-    const parsed = JSON.parse(cleanJsonResponse(response)) as {
-      goalAlreadyMet?: boolean;
-      steps?: Partial<RouteStep>[];
+    const response = await askGemini({
+      system: fill(PROMPTS.redreamRoute, trustedValues(goal, persona)),
+      pageData: { steps_done: stepsDone, replan_reason: reason, current_page: pageDataOf(state) },
+      schema: REDREAM_SCHEMA,
+    });
+    const parsed = JSON.parse(cleanJsonResponse(response)) as { goalAlreadyMet?: boolean; steps?: unknown };
+    return {
+      goalAlreadyMet: parsed.goalAlreadyMet === true,
+      steps: sanitizeSteps(parsed.steps, MAX_REDREAM_STEPS),
     };
-    const steps = (Array.isArray(parsed.steps) ? parsed.steps : [])
-      .slice(0, MAX_REDREAM_STEPS)
-      .map((step, i) => normalizeStep(step, i + 1));
-    return { goalAlreadyMet: parsed.goalAlreadyMet === true, steps };
   } catch (error) {
     console.error("[Routes] Re-dream failed:", error);
     return { goalAlreadyMet: false, steps: [] };

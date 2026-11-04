@@ -30,7 +30,6 @@ export function compactPageContext(state: PageState): string {
   const elements = [...content, ...chrome].map((el) => `- ${el.type}: "${el.label}"`).join("\n");
   const text = [
     `Title: ${state.title}`,
-    state.metaDescription ? `Description: ${state.metaDescription}` : "",
     state.headings.length ? `Headings:\n${state.headings.slice(0, 12).map((h) => `- ${h}`).join("\n")}` : "",
     `Interactive elements:\n${elements || "- (none captured)"}`,
   ]

@@ -14,8 +14,12 @@ import {
 import { PageState } from "./types";
 import { describePersonaForPrompt } from "./persona-resolver";
 import { redreamFromState } from "./route-dreamer";
+import { checkGoalEvidence, GoalSignals, NO_SIGNALS, pickBestRouteId } from "./goal-evidence";
+import { sameSite, siteHost } from "./step-guard";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
+import { fill } from "../llm/prompt-data";
+import { COMPARE_SCHEMA } from "../llm/schemas";
 import { gotoAllowed } from "../security/url-guard";
 
 const ROUTES_TO_VERIFY = 2;
@@ -233,7 +237,8 @@ async function verifyRoute(
   url: string,
   route: Route,
   goal: Goal,
-  persona: Persona
+  persona: Persona,
+  goalSignals: GoalSignals
 ): Promise<Route> {
   const page = await browser.newPage();
   const results: RouteStepResult[] = [];
@@ -242,6 +247,8 @@ async function verifyRoute(
   let i = 0;
   let outcome: RouteOutcome | null = null;
   let blockReason = "";
+  // La ruta salió del sitio analizado: termina ahí (step-guard.ts).
+  let leftSite = "";
 
   let replansBeforeAction = 0;
 
@@ -286,6 +293,10 @@ async function verifyRoute(
     await gotoAllowed(page, url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1200);
     await page.keyboard.press("Escape").catch(() => {});
+    // El sitio es donde aterrizó la URL (linear.app → www.linear.app), y su
+    // texto es la base para comprobar las señales del objetivo al final.
+    const siteUrl = page.url();
+    const initialText = await pageText(page);
 
     while (outcome === null) {
       if (results.length >= MAX_ATTEMPTS) {
@@ -331,12 +342,21 @@ async function verifyRoute(
       const done = await act(page, step, element);
       const state = await captureState(page);
 
-      // 3. ¿El sitio la detuvo?
-      const block = await detectBlock(page, goal);
+      // 3. ¿Salió del sitio analizado? Un enlace de la página no puede
+      //    llevar al agente a otro dominio y seguir contando como el flujo
+      //    de este sitio.
+      const offSite = sameSite(siteUrl, page.url())
+        ? null
+        : `Left the analyzed site for ${siteHost(page.url()) ?? "another page"}.`;
 
-      // 4. Expectativa.
+      // 4. ¿El sitio la detuvo?
+      const block = offSite ? null : await detectBlock(page, goal);
+
+      // 5. Expectativa.
       const { check, checks } = await checkExpectation(page, step, urlBefore, textBefore, done.stateChanged, plan[i + 1]);
-      const whatHappened = block
+      const whatHappened = offSite
+        ? offSite
+        : block
         ? block
         : !done.executed
           ? `Could not click "${found?.label ?? step.targetElement}".`
@@ -348,10 +368,15 @@ async function verifyRoute(
       results.push({
         step, plan: planNumber, found, executed: done.executed, stateChanged: done.stateChanged, check, checks,
         actualUrl: state.url, actualTitle: state.title, screenshot: state.screenshot,
-        realFriction: !done.executed ? 1 : check === "diverged" ? 0.7 : check === "partial" ? 0.3 : 0,
+        realFriction: offSite || !done.executed ? 1 : check === "diverged" ? 0.7 : check === "partial" ? 0.3 : 0,
         whatHappened,
       });
 
+      if (offSite) {
+        outcome = "unreachable";
+        leftSite = offSite;
+        break;
+      }
       if (block) {
         outcome = "blocked";
         blockReason = block;
@@ -368,9 +393,16 @@ async function verifyRoute(
     }
 
     const finalState = await captureState(page);
-    await page.close();
-
     const finalOutcome: RouteOutcome = outcome ?? "unreachable";
+
+    // ¿Llegó de verdad? Las señales del objetivo, buscadas con código en la
+    // página final. Que el plan se agote o que el modelo diga que el
+    // objetivo está cumplido no basta.
+    const evidence =
+      finalOutcome === "reached"
+        ? checkGoalEvidence(goalSignals, initialText, await pageText(page), page.url())
+        : null;
+    await page.close();
     // Métricas solo sobre el camino: los pasos descartados al replanificar
     // describen los tropiezos del motor, no el flujo del sitio.
     const path = results.filter((r) => !r.discarded);
@@ -396,12 +428,18 @@ async function verifyRoute(
       replansBeforeAction,
       pathSteps: path.length,
       probabilityEstimated: planNumber > 0,
+      goalVerified: evidence ? evidence.verified : undefined,
+      goalSignalsFound: evidence ? evidence.found : undefined,
       verdict:
         finalOutcome === "reached"
-          ? `Reached the goal in ${completed} steps${planNumber > 0 ? ` after ${planNumber} re-plan${planNumber > 1 ? "s" : ""}` : ""}, ending on "${finalState.title}".`
+          ? evidence?.verified
+            ? `Reached the goal in ${completed} steps${planNumber > 0 ? ` after ${planNumber} re-plan${planNumber > 1 ? "s" : ""}` : ""}, ending on "${finalState.title}".`
+            : `Reached the end of the route in ${completed} steps, ending on "${finalState.title}", but the goal could not be confirmed on that page.`
           : finalOutcome === "blocked"
             ? `Blocked after ${completed} steps: ${blockReason}`
-            : `No path to the goal after ${planNumber} re-plan${planNumber === 1 ? "" : "s"} (${completed} steps completed).`,
+            : leftSite
+              ? `Stopped after ${completed} steps: ${leftSite}`
+              : `No path to the goal after ${planNumber} re-plan${planNumber === 1 ? "" : "s"} (${completed} steps completed).`,
     };
   } catch (error) {
     await page.close().catch(() => {});
@@ -447,15 +485,20 @@ async function compareRoutes(
     replanCount: r.replanCount,
     realFriction: r.realFriction,
     reachedGoal: r.reachedGoal,
+    goalVerified: r.goalVerified === true,
     verdict: r.verdict,
   }));
 
-  const prompt = PROMPTS.compareRoutes
-    .replace("{GOAL_DESCRIPTION}", goal.description)
-    .replace("{PERSONA_DESCRIPTION}", describePersonaForPrompt(persona))
-    .replace("{ROUTES_JSON}", JSON.stringify(compact, null, 2));
-
-  const response = await askGemini(prompt);
+  // Las rutas llevan texto del sitio (etiquetas, títulos en el verdict):
+  // van como page_data.
+  const response = await askGemini({
+    system: fill(PROMPTS.compareRoutes, {
+      GOAL_DESCRIPTION: goal.description,
+      PERSONA_DESCRIPTION: describePersonaForPrompt(persona),
+    }),
+    pageData: { routes: compact },
+    schema: COMPARE_SCHEMA,
+  });
   const cleaned = cleanJsonResponse(response);
 
   try {
@@ -486,6 +529,7 @@ export async function verifyAndCompare(
   personaMode: PersonaMode,
   initialState: PageState,
   routes: Route[],
+  goalSignals: GoalSignals = NO_SIGNALS,
   // Se llama al terminar la verificación y antes de comparar, para que
   // quien escuche pueda distinguir las dos etapas.
   onCompare?: () => void
@@ -501,7 +545,7 @@ export async function verifyAndCompare(
 
     for (const route of toVerify) {
       console.log(`[Routes] Verifying ${route.id} via "${route.entryPoint}"...`);
-      const result = await verifyRoute(browser, url, route, goal, persona);
+      const result = await verifyRoute(browser, url, route, goal, persona, goalSignals);
       verified.push(result);
     }
 
@@ -511,9 +555,13 @@ export async function verifyAndCompare(
     console.log("[Routes] Comparing routes...");
     const comparison = await compareRoutes(goal, persona, allRoutes);
 
-    // El mejor solo puede ser una ruta ejecutada que llegó al objetivo.
-    const best = allRoutes.find((r) => r.id === comparison.bestRouteId);
-    const bestRouteId = best && best.verified && best.outcome === "reached" ? best.id : null;
+    // El mejor solo puede ser una ruta ejecutada que llegó al objetivo y
+    // cuya llegada se comprobó (goal-evidence.ts). El más probable debe
+    // existir; si el modelo da otro id, el de mayor probabilidad.
+    const bestRouteId = pickBestRouteId(allRoutes, comparison.bestRouteId);
+    const mostLikelyRouteId = allRoutes.some((r) => r.id === comparison.mostLikelyRouteId)
+      ? comparison.mostLikelyRouteId
+      : (sorted[0]?.id ?? null);
 
     return {
       url,
@@ -523,8 +571,9 @@ export async function verifyAndCompare(
       initialState,
       routes: allRoutes,
       routesFound: routes.length,
+      goalSignals,
       bestRouteId,
-      mostLikelyRouteId: comparison.mostLikelyRouteId,
+      mostLikelyRouteId,
       verdict: comparison.verdict,
       recommendation: comparison.recommendation,
     };

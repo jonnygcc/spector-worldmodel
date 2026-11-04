@@ -21,9 +21,10 @@ import type { Friction, Route, Status, Step } from "./sample";
 //   coincidiera del todo con lo esperado.
 // - Friction: realFriction (0–1) en 0–100. Nivel: < 34 bajo, < 67 medio,
 //   resto alto.
-// - Status: RECOMMENDED si es bestRouteId; si no, según cómo terminó:
-//   EXECUTED (llegó), BLOCKED (el sitio la detuvo) o UNREACHABLE (no
-//   encontró camino tras replanificar).
+// - Status: UNVERIFIED si llegó pero sin las señales del objetivo en la
+//   página final; si no, RECOMMENDED si es bestRouteId, o según cómo
+//   terminó: EXECUTED (llegó), BLOCKED (el sitio la detuvo) o UNREACHABLE
+//   (no encontró camino tras replanificar, o salió del sitio).
 // - Time: el motor no lo mide → "—".
 // - reachedSteps: en una ruta bloqueada, todos menos el último paso.
 
@@ -33,7 +34,11 @@ function frictionLevel(value: number): Friction {
   return "high";
 }
 
-function statusOf(route: EngineRoute, bestRouteId: string | null): Status {
+// Una ruta que llegó sin evidencia es UNVERIFIED aunque el motor la diera
+// como la mejor: la comprobación se repite aquí.
+export function statusOf(route: EngineRoute, bestRouteId: string | null): Status {
+  const reached = route.outcome === "reached" || (route.outcome === undefined && route.reachedGoal);
+  if (reached && route.goalVerified !== true) return "unverified";
   if (route.id === bestRouteId) return "recommended";
   if (route.outcome === "blocked") return "blocked";
   if (route.outcome === "unreachable") return "unreachable";

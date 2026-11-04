@@ -4,6 +4,30 @@ import { dreamAllRoutes } from "./route-dreamer";
 import { verifyAndCompare } from "./route-verifier";
 import { resolvePersona } from "./persona-resolver";
 import { GOALS, Goal, GoalId, PersonaMode, RouteComparison } from "./goal-types";
+import { GoalSignals, NO_SIGNALS, normalizeSignals } from "./goal-evidence";
+import { askGemini, cleanJsonResponse } from "../llm/gemini";
+import { PROMPTS } from "../llm/prompts";
+import { fill } from "../llm/prompt-data";
+import { GOAL_SIGNALS_SCHEMA } from "../llm/schemas";
+
+// Señales de que el objetivo se cumplió, pedidas solo a partir del
+// objetivo: sin datos del sitio. Si la llamada falla no hay señales, y
+// ninguna ruta podrá salir como verificada (queda UNVERIFIED).
+async function deriveGoalSignals(goal: Goal): Promise<GoalSignals> {
+  try {
+    const response = await askGemini({
+      system: fill(PROMPTS.goalSignals, {
+        GOAL_DESCRIPTION: goal.description,
+        SUCCESS_CRITERIA: goal.successCriteria,
+      }),
+      schema: GOAL_SIGNALS_SCHEMA,
+    });
+    return normalizeSignals(JSON.parse(cleanJsonResponse(response)));
+  } catch (error) {
+    console.error("[Spector] Goal signals failed:", error);
+    return NO_SIGNALS;
+  }
+}
 
 // Etapas del motor, en el orden en que corren. Los ids son los del
 // StageList de la UI (components/loading/StageList.tsx).
@@ -29,6 +53,9 @@ export async function runGoalAnalysis(
   // no dependen entre sí, y así el orden coincide con el de la UI y un
   // sitio que no carga falla en la primera etapa.
   onStage?.("load");
+  // Antes de visitar el sitio: la página no puede influir en las señales.
+  const goalSignals = await deriveGoalSignals(goal);
+  console.log(`[Spector] Goal signals: text [${goalSignals.text.join(", ")}], url [${goalSignals.url.join(", ")}]`);
   console.log("[Spector] Capturing initial state...");
   const { browser, state } = await visitAndCapture(url);
   await browser.close();
@@ -60,6 +87,7 @@ export async function runGoalAnalysis(
     initialState: state,
     routes: [],
     routesFound: 0,
+    goalSignals,
     bestRouteId: null,
     mostLikelyRouteId: null,
     verdict:
@@ -84,6 +112,7 @@ export async function runGoalAnalysis(
     personaSelection.mode,
     state,
     routes,
+    goalSignals,
     () => onStage?.("compare")
   );
 }

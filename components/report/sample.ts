@@ -4,7 +4,17 @@
 // UNREACHABLE: la ruta se ejecutó pero no encontró camino al objetivo ni
 // tras replanificar. SUCCESS y FRICTION solo existen en el World Model:
 // escenarios predichos, que nunca se ejecutan (BLOCKED vale para los dos).
-export type Status = "recommended" | "executed" | "blocked" | "unreachable" | "success" | "friction";
+// "unverified" no es un resultado sino la falta de evidencia: la ruta
+// llegó al final de su plan, pero el código no encontró en la página final
+// las señales del objetivo.
+export type Status =
+  | "recommended"
+  | "executed"
+  | "blocked"
+  | "unreachable"
+  | "success"
+  | "friction"
+  | "unverified";
 export type Friction = "low" | "medium" | "high";
 
 // `screenshot` solo existe en rutas verificadas en el navegador; sin ella

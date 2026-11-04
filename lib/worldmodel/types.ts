@@ -13,7 +13,8 @@ export interface InteractiveElement {
 export interface PageState {
   url: string;
   title: string;
-  metaDescription: string;
+  // Solo encabezados visibles y con tope (page-scripts.ts). Sin meta
+  // description: el usuario no la ve.
   headings: string[];
   interactiveElements: InteractiveElement[];
   screenshot: string;

@@ -1,8 +1,16 @@
 import { WMKind, WMScenario, StepNode } from "./report-contract";
 import { HAPPY_PATH_MAX, PAGE_CONTEXT_MAX, truncate, type WorldModelInput } from "./world-model-input";
 import { Type, type Schema } from "@google/genai";
-import { askGeminiDetailed, cleanJsonResponse, GEMINI_MODEL, type GeminiAnswer } from "../llm/gemini";
+import {
+  askGeminiDetailed,
+  cleanJsonResponse,
+  contentsOf,
+  GEMINI_MODEL,
+  type GeminiAnswer,
+  type ModelRequest,
+} from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
+import { fill } from "../llm/prompt-data";
 
 // ============================================================
 // World Model: detours predichos hacia el mismo objetivo
@@ -121,7 +129,9 @@ class ProviderError extends Error {
   }
 }
 
-async function askOpenRouter(prompt: string, signal: AbortSignal): Promise<GeminiAnswer> {
+// Las mismas dos partes que en Gemini: las instrucciones como mensaje
+// "system" y los datos del sitio como único mensaje "user".
+async function askOpenRouter(request: ModelRequest, signal: AbortSignal): Promise<GeminiAnswer> {
   const key = process.env.OPENROUTER_API_KEY;
   const model = process.env.OPENROUTER_MODEL;
   if (!key || !model) throw new Error("OpenRouter is not configured (OPENROUTER_API_KEY, OPENROUTER_MODEL)");
@@ -130,7 +140,10 @@ async function askOpenRouter(prompt: string, signal: AbortSignal): Promise<Gemin
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "system", content: request.system },
+        { role: "user", content: contentsOf(request) },
+      ],
       response_format: { type: "json_object" },
       max_tokens: OUTPUT_TOKENS,
     }),
@@ -163,17 +176,8 @@ function providerOrder(): Provider[] {
 
 // Una llamada, sin reintentos de red: los proveedores comparten los
 // TIMEOUT_MS, y si el free tier limita mejor pasar al siguiente.
-const ask = (provider: Provider, prompt: string, signal: AbortSignal) =>
-  provider === "openrouter"
-    ? askOpenRouter(prompt, signal)
-    : askGeminiDetailed(prompt, {
-        signal,
-        config: {
-          maxOutputTokens: OUTPUT_TOKENS,
-          responseMimeType: "application/json",
-          responseSchema: SCENARIO_SCHEMA,
-        },
-      });
+const ask = (provider: Provider, request: ModelRequest, signal: AbortSignal) =>
+  provider === "openrouter" ? askOpenRouter(request, signal) : askGeminiDetailed(request, { signal });
 
 const modelName = (provider: Provider) =>
   provider === "openrouter" ? (process.env.OPENROUTER_MODEL ?? "openrouter") : GEMINI_MODEL;
@@ -433,14 +437,21 @@ function reasonFor(error: unknown, timedOut: boolean): string {
 export async function predictDetours(input: WorldModelInput): Promise<WorldModelOutcome> {
   // Se recorta otra vez aquí: la entrada viene del cliente.
   const pageContext = truncate(input.pageContext, PAGE_CONTEXT_MAX);
-  const prompt = PROMPTS.worldModel
-    .replaceAll("{GOAL}", input.goal)
-    .replace("{URL}", input.url)
-    .replace("{PAGE_CONTEXT}", pageContext)
-    .replace("{HAPPY_PATH}", truncate(input.happyPath, HAPPY_PATH_MAX))
-    .replace("{N}", String(SCENARIOS));
+  // El objetivo lo escribió el usuario: instrucciones. La URL, el estado
+  // capturado y la ruta medida vienen del sitio: page_data.
+  const request: ModelRequest = {
+    system: fill(PROMPTS.worldModel, { GOAL: input.goal, N: String(SCENARIOS) }),
+    pageData: {
+      url: input.url,
+      entry_state: pageContext,
+      measured_happy_path: truncate(input.happyPath, HAPPY_PATH_MAX),
+    },
+    schema: SCENARIO_SCHEMA,
+    maxOutputTokens: OUTPUT_TOKENS,
+  };
   console.log(
-    `[WorldModel] pageContext ${input.pageContext.length} chars (sent ${pageContext.length}), prompt ${prompt.length} chars.`
+    `[WorldModel] pageContext ${input.pageContext.length} chars (sent ${pageContext.length}), ` +
+      `system ${request.system.length} chars, data ${contentsOf(request).length} chars.`
   );
 
   const deadline = new AbortController();
@@ -458,7 +469,7 @@ export async function predictDetours(input: WorldModelInput): Promise<WorldModel
         const label = `${modelName(provider)} (attempt ${attempt}/${PARSE_ATTEMPTS})`;
         try {
           console.log(`[WorldModel] Predicting detours with ${label}...`);
-          const answer = await ask(provider, prompt, deadline.signal);
+          const answer = await ask(provider, request, deadline.signal);
           console.log(
             `[WorldModel] Raw answer: finishReason ${answer.finishReason}, ` +
               `tokens ${answer.promptTokens ?? "?"} in / ${answer.outputTokens ?? "?"} out, ` +

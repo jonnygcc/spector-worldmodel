@@ -1,4 +1,5 @@
-import { GoogleGenAI, type GenerateContentConfig } from "@google/genai";
+import { GoogleGenAI, type GenerateContentConfig, type Schema } from "@google/genai";
+import { dataMessage, MAX_DATA_CHARS } from "./prompt-data";
 
 let lastCallTime = 0;
 const MIN_INTERVAL_MS = 4500; // ~13 requests per minute, por debajo del limite de 15
@@ -25,14 +26,50 @@ export const ai = new GoogleGenAI({
 // demanda, 429 por cuota, o no respondía en 25s).
 export const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
-// `signal`: cancela la llamada en curso y los reintentos (el World Model
-// le pone un tiempo máximo). `config`: límites de salida y formato
-// (maxOutputTokens, responseMimeType).
+// Una llamada al modelo (inyección de prompt, paso 7):
+// - `system`: las instrucciones, por systemInstruction. Solo llevan
+//   valores de confianza (objetivo y perfil del usuario).
+// - `pageData`: lo que viene del sitio analizado, como único mensaje del
+//   usuario: {"page_data": …}. Nunca se concatena con las instrucciones.
+// - `schema`: la forma de la respuesta (responseSchema).
+export interface ModelRequest {
+  system: string;
+  pageData?: unknown;
+  schema: Schema;
+  maxOutputTokens?: number;
+}
+
+// Tope de la salida de cada llamada. La respuesta más larga (5 rutas o 6
+// pasos con sus expectativas) ronda los 1.500 tokens.
+const OUTPUT_TOKENS = 4096;
+
+// El mensaje de datos de una petición, con su tope. Exportado para el
+// World Model, que lo manda también a OpenRouter.
+export function contentsOf(request: ModelRequest): string {
+  const contents = dataMessage(request.pageData);
+  if (contents.length > MAX_DATA_CHARS) {
+    throw new Error(`The page data is too large to send to the model (${contents.length} characters).`);
+  }
+  return contents;
+}
+
+function configOf(request: ModelRequest, signal?: AbortSignal): GenerateContentConfig {
+  return {
+    systemInstruction: request.system,
+    responseMimeType: "application/json",
+    responseSchema: request.schema,
+    maxOutputTokens: request.maxOutputTokens ?? OUTPUT_TOKENS,
+    abortSignal: signal,
+  };
+}
+
+// `signal`: cancela la llamada en curso y los reintentos.
 export async function askGemini(
-  prompt: string,
+  request: ModelRequest,
   maxRetries = 3,
-  { signal, config }: { signal?: AbortSignal; config?: GenerateContentConfig } = {}
+  { signal }: { signal?: AbortSignal } = {}
 ): Promise<string> {
+  const contents = contentsOf(request);
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -41,8 +78,8 @@ export async function askGemini(
       await waitForRateLimit();
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
-        contents: prompt,
-        config: { ...config, abortSignal: signal },
+        contents,
+        config: configOf(request, signal),
       });
       return response.text ?? "";
     } catch (error: unknown) {
@@ -66,14 +103,15 @@ export interface GeminiAnswer {
 }
 
 export async function askGeminiDetailed(
-  prompt: string,
-  { signal, config }: { signal?: AbortSignal; config?: GenerateContentConfig } = {}
+  request: ModelRequest,
+  { signal }: { signal?: AbortSignal } = {}
 ): Promise<GeminiAnswer> {
+  const contents = contentsOf(request);
   await waitForRateLimit();
   const response = await ai.models.generateContent({
     model: GEMINI_MODEL,
-    contents: prompt,
-    config: { ...config, abortSignal: signal },
+    contents,
+    config: configOf(request, signal),
   });
   return {
     text: response.text ?? "",
