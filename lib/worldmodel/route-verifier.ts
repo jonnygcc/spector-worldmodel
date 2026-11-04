@@ -21,8 +21,10 @@ import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { COMPARE_SCHEMA } from "../llm/schemas";
 import { gotoAllowed } from "../security/url-guard";
+import { mustPropagate } from "../llm/model-errors";
 import {
   ACTION_TIMEOUT_MS,
+  checkDeadline,
   evaluateWithTimeout,
   MAX_PAGE_TEXT,
   newSandboxedPage,
@@ -460,6 +462,11 @@ async function verifyRoute(
     };
   } catch (error) {
     await page.close().catch(() => {});
+    // Cuota agotada, plazo vencido o cliente desconectado no son un fallo
+    // de esta ruta: suben. Si el navegador se cerró porque el análisis
+    // terminó, checkDeadline lanza el motivo real.
+    if (mustPropagate(error)) throw error;
+    checkDeadline();
     return {
       ...route,
       // Si falló antes del primer paso (la página no cargó), no se ejecutó.

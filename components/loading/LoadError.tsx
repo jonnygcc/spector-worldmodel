@@ -1,4 +1,5 @@
 import { GlobeOff } from "lucide-react";
+import RetryButton from "./RetryButton";
 
 // Card de error del análisis (frames Phone/ y Desktop/Loading – error).
 // Mobile-first: en móvil ocupa el ancho disponible (los márgenes los pone
@@ -12,17 +13,22 @@ import { GlobeOff } from "lucide-react";
 //
 // `reason` es el motivo real que devuelve el motor. El título y la ayuda
 // dependen de la etapa: el diseño solo cubre el fallo al cargar el sitio;
-// para el resto se usa un título genérico.
+// para el resto se usa un título genérico. "Try again" solo se ofrece si
+// sirve, y espera lo que haga falta (RetryButton).
 export default function LoadError({
   url = "https://linear.app",
   reason,
   failedWhileLoading = true,
+  retryable = true,
+  retryAfterSeconds,
   onEdit,
   onRetry,
 }: {
   url?: string;
   reason?: string;
   failedWhileLoading?: boolean;
+  retryable?: boolean;
+  retryAfterSeconds?: number;
   onEdit?: () => void;
   onRetry?: () => void;
 }) {
@@ -61,13 +67,13 @@ export default function LoadError({
           >
             Edit URL
           </button>
-          <button
-            type="button"
-            onClick={onRetry}
+          <RetryButton
+            label="Try again"
+            onRetry={onRetry}
+            retryable={retryable}
+            retryAfterSeconds={retryAfterSeconds}
             className="cursor-pointer font-body text-small font-medium leading-rg text-neutral-700 transition-colors lg:text-body duration-150 hover:text-neutral-800"
-          >
-            Try again
-          </button>
+          />
         </div>
       </div>
     </div>

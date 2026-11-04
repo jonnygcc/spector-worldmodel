@@ -104,12 +104,20 @@ export function evaluateWithTimeout<T>(page: Page, script: string, ms = EVALUATE
 // Plazo del análisis y cierre garantizado
 // ============================================================
 // Cada análisis corre dentro de una sesión (AsyncLocalStorage): los
-// navegadores que lanza quedan registrados en ella. Al vencer el plazo se
-// cierran todos (lo que esté esperando a la página falla en el acto), y al
-// terminar, bien o mal, se cierra lo que quede abierto.
+// navegadores que lanza quedan registrados en ella, y su AbortSignal llega
+// a las llamadas al modelo (gemini.ts). La sesión termina de tres formas:
+// - vence el plazo (AnalysisTimeoutError);
+// - el cliente se desconecta (`signal` de fuera, AnalysisCancelledError):
+//   cerró la pestaña, y nadie va a leer el resultado (paso 9);
+// - el análisis acaba, bien o mal.
+// En los dos primeros casos se abortan las llamadas en curso y se cierran
+// todos los navegadores, así que lo que esté esperando falla en el acto.
+// En todos, al final no queda ningún navegador abierto.
 interface Session {
   browsers: Set<Browser>;
-  expired: boolean;
+  controller: AbortController;
+  // El error con el que terminó antes de tiempo, o null mientras sigue.
+  ended: Error | null;
 }
 const sessions = new AsyncLocalStorage<Session>();
 
@@ -120,44 +128,70 @@ export class AnalysisTimeoutError extends Error {
   }
 }
 
+export class AnalysisCancelledError extends Error {
+  constructor() {
+    super("The analysis was cancelled: the client disconnected.");
+    this.name = "AnalysisCancelledError";
+  }
+}
+
 const closeAll = (session: Session) =>
   Promise.all([...session.browsers].map((browser) => browser.close().catch(() => {})));
 
-// Registra un navegador en la sesión del análisis en curso. Si el plazo
-// ya venció, lo cierra y falla.
+// El AbortSignal del análisis en curso, para las llamadas al modelo.
+export const currentAnalysisSignal = (): AbortSignal | undefined => sessions.getStore()?.controller.signal;
+
+// Registra un navegador en la sesión del análisis en curso. Si la sesión
+// ya terminó (plazo o cancelación), lo cierra y falla.
 export async function trackBrowser(browser: Browser): Promise<Browser> {
   const session = sessions.getStore();
   if (!session) return browser;
-  if (session.expired) {
+  if (session.ended) {
     await browser.close().catch(() => {});
-    throw new AnalysisTimeoutError(ANALYSIS_TIMEOUT_MS);
+    throw session.ended;
   }
   session.browsers.add(browser);
   browser.on("disconnected", () => session.browsers.delete(browser));
   return browser;
 }
 
-// Falla si el plazo del análisis en curso ya venció: se llama entre etapas
-// para no seguir gastando llamadas al modelo.
+// Falla si el análisis en curso ya terminó (plazo o cancelación): se llama
+// entre etapas para no seguir gastando llamadas al modelo.
 export function checkDeadline(): void {
-  if (sessions.getStore()?.expired) throw new AnalysisTimeoutError(ANALYSIS_TIMEOUT_MS);
+  const ended = sessions.getStore()?.ended;
+  if (ended) throw ended;
 }
 
-export async function withAnalysisDeadline<T>(run: () => Promise<T>, ms = ANALYSIS_TIMEOUT_MS): Promise<T> {
-  const session: Session = { browsers: new Set(), expired: false };
+export async function withAnalysisDeadline<T>(
+  run: () => Promise<T>,
+  ms = ANALYSIS_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<T> {
+  const session: Session = { browsers: new Set(), controller: new AbortController(), ended: null };
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      session.expired = true;
+  let onAbort: (() => void) | undefined;
+
+  const stopped = new Promise<never>((_, reject) => {
+    const end = (error: Error) => {
+      if (session.ended) return;
+      session.ended = error;
+      session.controller.abort(error);
       void closeAll(session);
-      reject(new AnalysisTimeoutError(ms));
-    }, ms);
+      reject(error);
+    };
+    timer = setTimeout(() => end(new AnalysisTimeoutError(ms)), ms);
+    onAbort = () => end(new AnalysisCancelledError());
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
   });
+  stopped.catch(() => {});
+
   const work = sessions.run(session, run);
   try {
-    return await Promise.race([work, deadline]);
+    return await Promise.race([work, stopped]);
   } finally {
     clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
     work.catch(() => {});
     await closeAll(session);
   }

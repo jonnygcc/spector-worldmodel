@@ -1,6 +1,7 @@
 import { LoaderCircle } from "lucide-react";
 import ReportSection from "./ReportSection";
 import ReportTable from "./ReportTable";
+import RetryButton from "@/components/loading/RetryButton";
 import { toTableRoute, type WMScenario } from "./contract";
 
 const NOTE =
@@ -11,7 +12,7 @@ const NOTE =
 export type WorldModelState =
   | { status: "loading" }
   | { status: "ready"; scenarios: WMScenario[] }
-  | { status: "error"; reason: string };
+  | { status: "error"; reason: string; retryable?: boolean; retryAfterSeconds?: number };
 
 const TEXT = "font-body text-body font-regular leading-lg text-neutral-600";
 
@@ -69,13 +70,15 @@ export default function WorldModelSection({
             </p>
           </div>
           {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
+            // key: cada error reinicia la cuenta atrás del botón.
+            <RetryButton
+              key={`${state.reason}-${state.retryAfterSeconds ?? 0}`}
+              label="Retry"
+              onRetry={onRetry}
+              retryable={state.retryable}
+              retryAfterSeconds={state.retryAfterSeconds}
               className="flex cursor-pointer items-center rounded-full bg-neutral-800 px-12 py-4 font-body text-small font-medium leading-rg text-neutral-100 lg:px-16 lg:py-8 lg:text-body"
-            >
-              Retry
-            </button>
+            />
           )}
         </div>
       )}

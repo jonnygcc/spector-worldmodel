@@ -7,6 +7,7 @@ import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { DREAM_SCHEMA, REDREAM_SCHEMA } from "../llm/schemas";
+import { mustPropagate } from "../llm/model-errors";
 
 const MAX_STEPS_PER_ROUTE = 6;
 const MAX_REDREAM_STEPS = 5;
@@ -179,6 +180,8 @@ export async function redreamFromState(
       steps: sanitizeSteps(parsed.steps, MAX_REDREAM_STEPS),
     };
   } catch (error) {
+    // Cuota, plazo o desconexión no son "no hay camino": suben.
+    if (mustPropagate(error)) throw error;
     console.error("[Routes] Re-dream failed:", error);
     return { goalAlreadyMet: false, steps: [] };
   }

@@ -11,6 +11,7 @@ import {
 } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
+import { pickFailure, quotaInfo, statusOf, type Failure } from "../llm/model-errors";
 
 // ============================================================
 // World Model: detours predichos hacia el mismo objetivo
@@ -49,7 +50,9 @@ const PARSE_ATTEMPTS = 2;
 
 export type WorldModelOutcome =
   | { ok: true; scenarios: WMScenario[]; model: string }
-  | { ok: false; reason: string };
+  // `reason` es el mensaje corto (Failure.message); kind, retryable y
+  // retryAfterSeconds dicen si el Retry sirve y cuándo.
+  | ({ ok: false; reason: string } & Failure);
 
 // ------------------------------------------------------------
 // Proveedores
@@ -417,24 +420,29 @@ export function parseScenarios(text: string, goal: string): WMScenario[] {
 // Orquestador
 // ------------------------------------------------------------
 
-// Estado HTTP de un error de proveedor: ApiError de @google/genai o
-// ProviderError de OpenRouter.
-const statusOf = (error: unknown): number | null => {
-  const status = (error as { status?: unknown })?.status;
-  return typeof status === "number" ? status : null;
-};
 
-// Razón corta para la UI, según el último fallo.
-function reasonFor(error: unknown, timedOut: boolean): string {
-  if (timedOut) return `The prediction took longer than ${TIMEOUT_MS / 1000} seconds.`;
-  if (error instanceof ParseError) return "The model's answer couldn't be read.";
-  const status = statusOf(error);
-  if (status === 429) return "The model's rate limit was reached. Try again in a minute.";
-  if (status !== null && status >= 500) return "The model is overloaded right now.";
-  return "The prediction service failed.";
+// Razón para la UI (paso 9). Un 429 en cualquier intento manda sobre el
+// timeout: si la cuota se agotó, eso es lo que hay que decir, aunque
+// después se acabara el tiempo. El timeout solo cuando no hubo 429.
+function failureFor(errors: unknown[], timedOut: boolean): Failure {
+  const failure = pickFailure(errors, {
+    timedOut,
+    timeoutMessage: `The prediction took longer than ${TIMEOUT_MS / 1000} seconds.`,
+  });
+  if (failure.kind !== "unknown") return failure;
+  return {
+    ...failure,
+    message:
+      errors[errors.length - 1] instanceof ParseError
+        ? "The model's answer couldn't be read."
+        : "The prediction service failed.",
+  };
 }
 
-export async function predictDetours(input: WorldModelInput): Promise<WorldModelOutcome> {
+const failed = (failure: Failure): WorldModelOutcome => ({ ok: false, reason: failure.message, ...failure });
+
+// `signal`: el de la petición; si el cliente se desconecta, se corta.
+export async function predictDetours(input: WorldModelInput, signal?: AbortSignal): Promise<WorldModelOutcome> {
   // Se recorta otra vez aquí: la entrada viene del cliente.
   const pageContext = truncate(input.pageContext, PAGE_CONTEXT_MAX);
   // El objetivo lo escribió el usuario: instrucciones. La URL, el estado
@@ -456,7 +464,9 @@ export async function predictDetours(input: WorldModelInput): Promise<WorldModel
 
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), TIMEOUT_MS);
-  let lastError: unknown = new Error("No provider is configured (GEMINI_API_KEY or OPENROUTER_*)");
+  const stop = signal ? AbortSignal.any([deadline.signal, signal]) : deadline.signal;
+  // Todos los fallos, en orden: la cuota de cualquiera manda (pickFailure).
+  const errors: unknown[] = [];
 
   try {
     for (const provider of providerOrder()) {
@@ -464,12 +474,12 @@ export async function predictDetours(input: WorldModelInput): Promise<WorldModel
       // leer; un fallo del proveedor (red, 429, 5xx) pasa directo al
       // siguiente.
       for (let attempt = 1; attempt <= PARSE_ATTEMPTS; attempt++) {
-        if (deadline.signal.aborted) break;
+        if (stop.aborted) break;
         const started = Date.now();
         const label = `${modelName(provider)} (attempt ${attempt}/${PARSE_ATTEMPTS})`;
         try {
           console.log(`[WorldModel] Predicting detours with ${label}...`);
-          const answer = await ask(provider, request, deadline.signal);
+          const answer = await ask(provider, request, stop);
           console.log(
             `[WorldModel] Raw answer: finishReason ${answer.finishReason}, ` +
               `tokens ${answer.promptTokens ?? "?"} in / ${answer.outputTokens ?? "?"} out, ` +
@@ -483,23 +493,31 @@ export async function predictDetours(input: WorldModelInput): Promise<WorldModel
           console.log(`[WorldModel] ${scenarios.length} scenarios kept (${Date.now() - started} ms).`);
           return { ok: true, scenarios, model: modelName(provider) };
         } catch (error) {
-          lastError = error;
+          errors.push(error);
+          const quota = quotaInfo(error);
           console.error(
             `[WorldModel] ${label} failed after ${Date.now() - started} ms:`,
             JSON.stringify({
               status: statusOf(error),
+              quota: quota ? { retryAfterMs: quota.retryAfterMs, daily: quota.daily } : undefined,
               parse: error instanceof ParseError,
               finishReason: error instanceof FinishError ? error.finishReason : undefined,
               timedOut: deadline.signal.aborted,
+              cancelled: signal?.aborted === true,
               message: (error as Error)?.message?.slice(0, 500),
             })
           );
           if (!(error instanceof ParseError)) break;
         }
       }
-      if (deadline.signal.aborted) break;
+      if (stop.aborted) break;
     }
-    return { ok: false, reason: reasonFor(lastError, deadline.signal.aborted) };
+    if (signal?.aborted) {
+      console.log("[WorldModel] Cancelled: the client disconnected.");
+      return failed({ kind: "cancelled", message: "The prediction was cancelled.", retryable: true });
+    }
+    if (errors.length === 0) errors.push(new Error("No provider is configured (GEMINI_API_KEY or OPENROUTER_*)"));
+    return failed(failureFor(errors, deadline.signal.aborted));
   } finally {
     clearTimeout(timer);
   }

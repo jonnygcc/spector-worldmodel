@@ -1,5 +1,7 @@
 import { GoogleGenAI, type GenerateContentConfig, type Schema } from "@google/genai";
 import { dataMessage, MAX_DATA_CHARS } from "./prompt-data";
+import { ModelQuotaError, quotaInfo, statusOf } from "./model-errors";
+import { currentAnalysisSignal } from "../security/browser-sandbox";
 
 let lastCallTime = 0;
 const MIN_INTERVAL_MS = 4500; // ~13 requests per minute, por debajo del limite de 15
@@ -63,17 +65,44 @@ function configOf(request: ModelRequest, signal?: AbortSignal): GenerateContentC
   };
 }
 
-// `signal`: cancela la llamada en curso y los reintentos.
+// Espera que se corta si se aborta la llamada.
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason ?? new Error("aborted"));
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new Error("aborted"));
+      },
+      { once: true }
+    );
+  });
+
+// Ante un 429 se espera lo que dice Gemini (RetryInfo.retryDelay) o, sin
+// ese dato, con backoff. Si hay que esperar más que esto, no se reintenta:
+// se falla con ModelQuotaError y el cliente ve cuándo volver a probar.
+// Reintentar de inmediato contra una cuota agotada siempre falla y gasta
+// otra petición.
+const MAX_QUOTA_WAIT_MS = 20_000;
+const QUOTA_BACKOFF_MS = [8_000, 16_000];
+// Fallos de red o 5xx: backoff corto.
+const ERROR_BACKOFF_MS = [2_000, 4_000];
+
+// `signal`: cancela la llamada en curso y los reintentos. Sin `signal`, el
+// del análisis en curso: si el plazo vence o el cliente se desconecta, la
+// llamada se corta (browser-sandbox.ts).
 export async function askGemini(
   request: ModelRequest,
   maxRetries = 3,
-  { signal }: { signal?: AbortSignal } = {}
+  { signal = currentAnalysisSignal() }: { signal?: AbortSignal } = {}
 ): Promise<string> {
   const contents = contentsOf(request);
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    if (signal?.aborted) break;
+    if (signal?.aborted) throw signal.reason ?? new Error("Gemini call aborted");
     try {
       await waitForRateLimit();
       const response = await ai.models.generateContent({
@@ -86,7 +115,27 @@ export async function askGemini(
       // Se guarda para relanzarlo si fallan todos los intentos: sin esto
       // se lanzaba `undefined` y el motivo real del fallo se perdía.
       lastError = error;
+      // Cancelada (plazo o cliente desconectado): no es un fallo del modelo.
+      if (signal?.aborted) {
+        console.log("[Gemini] call aborted: the analysis ended.");
+        throw signal.reason ?? error;
+      }
       console.error(`[Gemini] attempt ${attempt}/${maxRetries} failed:`, error);
+
+      const quota = quotaInfo(error);
+      if (quota) {
+        const wait = quota.retryAfterMs ?? QUOTA_BACKOFF_MS[attempt - 1] ?? Infinity;
+        if (quota.daily || attempt >= maxRetries || wait > MAX_QUOTA_WAIT_MS) {
+          throw new ModelQuotaError(quota.retryAfterMs, quota.daily);
+        }
+        console.warn(`[Gemini] rate limited: waiting ${Math.round(wait / 1000)}s before retrying.`);
+        await sleep(wait, signal);
+        continue;
+      }
+      // Otro 4xx (petición inválida, clave rechazada): reintentar no cambia nada.
+      const status = statusOf(error);
+      if (status !== null && status >= 400 && status < 500) throw error;
+      if (attempt < maxRetries) await sleep(ERROR_BACKOFF_MS[attempt - 1] ?? 4_000, signal);
     }
   }
   throw lastError ?? new Error("Gemini call aborted");

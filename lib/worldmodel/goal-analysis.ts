@@ -9,7 +9,8 @@ import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { GOAL_SIGNALS_SCHEMA } from "../llm/schemas";
-import { checkDeadline, withAnalysisDeadline } from "../security/browser-sandbox";
+import { checkDeadline, withAnalysisDeadline, ANALYSIS_TIMEOUT_MS } from "../security/browser-sandbox";
+import { mustPropagate } from "../llm/model-errors";
 
 // Señales de que el objetivo se cumplió, pedidas solo a partir del
 // objetivo: sin datos del sitio. Si la llamada falla no hay señales, y
@@ -25,6 +26,9 @@ async function deriveGoalSignals(goal: Goal): Promise<GoalSignals> {
     });
     return normalizeSignals(JSON.parse(cleanJsonResponse(response)));
   } catch (error) {
+    // Sin cuota no tiene sentido seguir: el análisis haría otra docena de
+    // llamadas que también fallarían.
+    if (mustPropagate(error)) throw error;
     console.error("[Spector] Goal signals failed:", error);
     return NO_SIGNALS;
   }
@@ -44,19 +48,27 @@ export type AnalysisStage = "load" | "profiles" | "find" | "simulate" | "browser
 // vencer se cierran sus navegadores y falla con AnalysisTimeoutError. Al
 // terminar, bien o mal, ningún navegador suyo queda abierto
 // (lib/security/browser-sandbox.ts).
+//
+// `signal`: el de la petición. Si el cliente se desconecta (cerró la
+// pestaña), el análisis se aborta: se cierran sus navegadores y se cortan
+// sus llamadas al modelo, con AnalysisCancelledError.
 export function runGoalAnalysis(
   url: string,
   goalInput: GoalId | Goal,
   personaMode: PersonaMode,
   customPersona?: string,
-  onStage?: (stage: AnalysisStage) => void
+  onStage?: (stage: AnalysisStage) => void,
+  signal?: AbortSignal
 ): Promise<RouteComparison> {
-  return withAnalysisDeadline(() =>
-    analyze(url, goalInput, personaMode, customPersona, (stage) => {
-      // Entre etapas: si el plazo venció, no se sigue.
-      checkDeadline();
-      onStage?.(stage);
-    })
+  return withAnalysisDeadline(
+    () =>
+      analyze(url, goalInput, personaMode, customPersona, (stage) => {
+        // Entre etapas: si el plazo venció o el cliente se fue, no se sigue.
+        checkDeadline();
+        onStage?.(stage);
+      }),
+    ANALYSIS_TIMEOUT_MS,
+    signal
   );
 }
 

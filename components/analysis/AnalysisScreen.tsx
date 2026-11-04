@@ -29,7 +29,16 @@ type Phase =
   | { kind: "starting" }
   | { kind: "loading"; stage: AnalysisStage }
   | { kind: "report"; result: RouteComparison }
-  | { kind: "error"; message: string; stage: AnalysisStage | null };
+  // retryable / retryAfterSeconds: si "Try again" sirve y cuándo (cuota).
+  | {
+      kind: "error";
+      message: string;
+      stage: AnalysisStage | null;
+      retryable?: boolean;
+      retryAfterSeconds?: number;
+      // Cambia en cada error: reinicia la cuenta atrás del botón.
+      at: number;
+    };
 
 // Pantalla única del análisis. La Home es el estado inicial; al enviar
 // pasa a Loading con la etapa real que reporta el motor, y de ahí a
@@ -82,6 +91,8 @@ export default function AnalysisScreen() {
         setWorldModel({
           status: "error",
           reason: outcome?.reason ?? `The prediction service failed (${response.status}).`,
+          retryable: outcome?.retryable,
+          retryAfterSeconds: outcome?.retryAfterSeconds,
         });
     } catch (error) {
       // Abortada por una petición nueva o por volver a la Home: no hay nada
@@ -119,13 +130,21 @@ export default function AnalysisScreen() {
         signal: controller.signal,
       });
 
-      // Rechazo antes de empezar (validación): JSON con { error }.
+      // Rechazo antes de empezar (validación, origen, límite de uso): JSON
+      // con { error } y, si aplica, retryable / retryAfterSeconds.
       if (!response.ok || !response.body) {
-        const body = await response.json().catch(() => null);
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          retryable?: boolean;
+          retryAfterSeconds?: number;
+        } | null;
         setPhase({
           kind: "error",
           message: body?.error ?? `Request failed (${response.status})`,
           stage: null,
+          retryable: body?.retryable,
+          retryAfterSeconds: body?.retryAfterSeconds,
+          at: Date.now(),
         });
         return;
       }
@@ -156,19 +175,27 @@ export default function AnalysisScreen() {
             predict(event.result);
             return;
           } else {
-            setPhase({ kind: "error", message: event.message, stage: event.stage });
+            setPhase({
+              kind: "error",
+              message: event.message,
+              stage: event.stage,
+              retryable: event.retryable,
+              retryAfterSeconds: event.retryAfterSeconds,
+              at: Date.now(),
+            });
             return;
           }
         }
       }
 
-      setPhase({ kind: "error", message: "The analysis ended without a result.", stage });
+      setPhase({ kind: "error", message: "The analysis ended without a result.", stage, at: Date.now() });
     } catch (error) {
       if (controller.signal.aborted) return;
       setPhase({
         kind: "error",
         message: error instanceof Error ? error.message : "Network error",
         stage,
+        at: Date.now(),
       });
     }
   }
@@ -208,9 +235,12 @@ export default function AnalysisScreen() {
       {phase.kind === "error" && submission && (
         <section className="flex flex-col items-center px-16 py-48 lg:px-24 lg:py-140">
           <LoadError
+            key={phase.at}
             url={submission.request.url}
             reason={phase.message}
             failedWhileLoading={phase.stage === "load"}
+            retryable={phase.retryable}
+            retryAfterSeconds={phase.retryAfterSeconds}
             onEdit={backToHome}
             onRetry={() => run(submission)}
           />
