@@ -21,6 +21,13 @@ import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { COMPARE_SCHEMA } from "../llm/schemas";
 import { gotoAllowed } from "../security/url-guard";
+import {
+  ACTION_TIMEOUT_MS,
+  evaluateWithTimeout,
+  MAX_PAGE_TEXT,
+  newSandboxedPage,
+  withTimeout,
+} from "../security/browser-sandbox";
 
 const ROUTES_TO_VERIFY = 2;
 
@@ -45,9 +52,13 @@ const needsElement = (step: RouteStep) => step.type === "click" || step.type ===
 
 // Texto visible de toda la página. Antes se comparaban solo los primeros
 // 3000 caracteres, y un cajón de carrito, que se añade al final del body,
-// no contaba como cambio.
+// no contaba como cambio. Con tope (MAX_PAGE_TEXT) y con timeout: una
+// página gigante o colgada no frena el análisis.
 const pageText = async (page: Page): Promise<string> =>
-  ((await page.evaluate("document.body ? document.body.innerText : ''").catch(() => "")) as string) || "";
+  (await evaluateWithTimeout<string>(
+    page,
+    `document.body ? document.body.innerText.slice(0, ${MAX_PAGE_TEXT}) : ''`
+  ).catch(() => "")) || "";
 
 // ============================================================
 // Acción de un paso
@@ -62,12 +73,12 @@ async function act(
 
   try {
     if (step.type === "scroll") {
-      await page.evaluate("window.scrollBy(0, window.innerHeight)");
+      await evaluateWithTimeout(page, "window.scrollBy(0, window.innerHeight)");
       await page.waitForTimeout(1000);
       return { executed: true, stateChanged: true };
     }
     if (step.type === "press") {
-      await page.keyboard.press(step.value || "Enter");
+      await withTimeout(page.keyboard.press(step.value || "Enter"), ACTION_TIMEOUT_MS, "The key press timed out.");
       await page.waitForTimeout(2000);
     } else if (element) {
       await element.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
@@ -81,7 +92,11 @@ async function act(
       } catch {
         // Un popup o un banner tapa el elemento: click directo en el DOM,
         // que dispara sus handlers aunque haya algo encima.
-        await element.evaluate((el) => (el as HTMLElement).click());
+        await withTimeout(
+          element.evaluate((el) => (el as HTMLElement).click()),
+          ACTION_TIMEOUT_MS,
+          "The click timed out."
+        );
       }
     }
   } catch {
@@ -201,15 +216,16 @@ function preCheck(
 // ============================================================
 async function detectBlock(page: Page, goal: Goal): Promise<string | null> {
   const goalText = `${goal.description} ${goal.successCriteria}`.toLowerCase();
-  const found = (await page
-    .evaluate(`(() => {
+  const found = (await evaluateWithTimeout(
+    page,
+    `(() => {
       const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
       const text = (document.title + ' ' + (document.body ? document.body.innerText.slice(0, 4000) : '')).toLowerCase();
       const password = Array.from(document.querySelectorAll('input[type="password"]')).some(visible);
       const card = Array.from(document.querySelectorAll('input')).some((el) => visible(el) && /cc-number|card ?number|cardnumber/i.test((el.getAttribute('autocomplete') || '') + ' ' + (el.getAttribute('name') || '') + ' ' + (el.getAttribute('placeholder') || '') + ' ' + (el.id || '')));
       return { text, password, card };
-    })()`)
-    .catch(() => null)) as { text: string; password: boolean; card: boolean } | null;
+    })()`
+  ).catch(() => null)) as { text: string; password: boolean; card: boolean } | null;
   if (!found) return null;
 
   // El texto sale en el idioma del sitio: Google le sirve a este equipo su
@@ -240,7 +256,8 @@ async function verifyRoute(
   persona: Persona,
   goalSignals: GoalSignals
 ): Promise<Route> {
-  const page = await browser.newPage();
+  // Contexto nuevo por ruta: sin cookies ni storage de la otra ruta.
+  const page = await newSandboxedPage(browser);
   const results: RouteStepResult[] = [];
   let plan = route.predictedSteps;
   let planNumber = 0;
@@ -290,7 +307,7 @@ async function verifyRoute(
   };
 
   try {
-    await gotoAllowed(page, url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await gotoAllowed(page, url, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1200);
     await page.keyboard.press("Escape").catch(() => {});
     // El sitio es donde aterrizó la URL (linear.app → www.linear.app), y su

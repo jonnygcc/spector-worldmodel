@@ -9,6 +9,7 @@ import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { GOAL_SIGNALS_SCHEMA } from "../llm/schemas";
+import { checkDeadline, withAnalysisDeadline } from "../security/browser-sandbox";
 
 // Señales de que el objetivo se cumplió, pedidas solo a partir del
 // objetivo: sin datos del sitio. Si la llamada falla no hay señales, y
@@ -38,12 +39,33 @@ export type AnalysisStage = "load" | "profiles" | "find" | "simulate" | "browser
 // El World Model no corre aquí: lo pide la UI aparte (/api/world-model)
 // cuando el reporte del agente ya está en pantalla, para que una llamada
 // lenta o limitada no deje el análisis colgado en "Comparing routes…".
-export async function runGoalAnalysis(
+//
+// Todo el análisis corre con un plazo total (ANALYSIS_TIMEOUT_MS): al
+// vencer se cierran sus navegadores y falla con AnalysisTimeoutError. Al
+// terminar, bien o mal, ningún navegador suyo queda abierto
+// (lib/security/browser-sandbox.ts).
+export function runGoalAnalysis(
   url: string,
   goalInput: GoalId | Goal,
   personaMode: PersonaMode,
   customPersona?: string,
   onStage?: (stage: AnalysisStage) => void
+): Promise<RouteComparison> {
+  return withAnalysisDeadline(() =>
+    analyze(url, goalInput, personaMode, customPersona, (stage) => {
+      // Entre etapas: si el plazo venció, no se sigue.
+      checkDeadline();
+      onStage?.(stage);
+    })
+  );
+}
+
+async function analyze(
+  url: string,
+  goalInput: GoalId | Goal,
+  personaMode: PersonaMode,
+  customPersona: string | undefined,
+  onStage: (stage: AnalysisStage) => void
 ): Promise<RouteComparison> {
   const goal = typeof goalInput === "string" ? GOALS[goalInput] : goalInput;
 
@@ -52,7 +74,7 @@ export async function runGoalAnalysis(
   // Se carga el sitio antes de resolver la persona (antes iba al revés):
   // no dependen entre sí, y así el orden coincide con el de la UI y un
   // sitio que no carga falla en la primera etapa.
-  onStage?.("load");
+  onStage("load");
   // Antes de visitar el sitio: la página no puede influir en las señales.
   const goalSignals = await deriveGoalSignals(goal);
   console.log(`[Spector] Goal signals: text [${goalSignals.text.join(", ")}], url [${goalSignals.url.join(", ")}]`);
@@ -60,13 +82,13 @@ export async function runGoalAnalysis(
   const { browser, state } = await visitAndCapture(url);
   await browser.close();
 
-  onStage?.("profiles");
+  onStage("profiles");
   console.log("[Spector] Resolving persona...");
   const personaSelection = await resolvePersona(personaMode, goal.id, customPersona);
   const persona = personaSelection.resolved;
   console.log(`[Spector] Persona: ${persona.label}`);
 
-  onStage?.("find");
+  onStage("find");
   console.log("[Spector] Finding routes toward the goal...");
   const { routes: entries, offGoal } = await findRoutes(state, goal, persona);
   console.log(`[Spector] Found ${entries.length} routes.`);
@@ -98,12 +120,12 @@ export async function runGoalAnalysis(
 
   if (entries.length === 0) return noPath();
 
-  onStage?.("simulate");
+  onStage("simulate");
   console.log("[Spector] Dreaming each route...");
   const routes = await dreamAllRoutes(state, goal, persona, entries);
   if (routes.length === 0) return noPath();
 
-  onStage?.("browser");
+  onStage("browser");
   console.log("[Spector] Verifying top routes in a real browser...");
   return await verifyAndCompare(
     url,
@@ -113,6 +135,6 @@ export async function runGoalAnalysis(
     state,
     routes,
     goalSignals,
-    () => onStage?.("compare")
+    () => onStage("compare")
   );
 }

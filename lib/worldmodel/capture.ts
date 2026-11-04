@@ -1,19 +1,25 @@
 import { Browser, Page } from "playwright-core";
 import { PageState, InteractiveElement } from "./types";
 import { gotoAllowed, launchGuardedChromium } from "../security/url-guard";
+import {
+  evaluateWithTimeout,
+  newSandboxedPage,
+  resolveChromiumPath,
+  SANDBOX_ARGS,
+  trackBrowser,
+} from "../security/browser-sandbox";
 import { buildFindElementScript, EXTRACT_STATE_SCRIPT, MAX_TITLE, TAG_ELEMENTS_SCRIPT } from "./page-scripts";
 
-const BROWSER_PATH =
-  "C:/Users/user/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe";
-
 // El navegador del análisis sale a la red solo por el proxy del validador
-// de URLs (lib/security/url-guard.ts).
+// de URLs (lib/security/url-guard.ts), sin prompts de permisos, y queda
+// registrado en la sesión del análisis para cerrarse siempre
+// (lib/security/browser-sandbox.ts).
 export async function launchBrowser(): Promise<Browser> {
-  return await launchGuardedChromium(BROWSER_PATH);
+  return await trackBrowser(await launchGuardedChromium(resolveChromiumPath(), undefined, SANDBOX_ARGS));
 }
 
 async function tagInteractiveElements(page: Page): Promise<void> {
-  await page.evaluate(TAG_ELEMENTS_SCRIPT);
+  await evaluateWithTimeout(page, TAG_ELEMENTS_SCRIPT);
 }
 
 export async function captureState(page: Page): Promise<PageState> {
@@ -21,7 +27,10 @@ export async function captureState(page: Page): Promise<PageState> {
 
   const url = page.url();
   // Con tope: el título entra en los prompts (inyección y volumen, paso 7).
-  const title = (await page.title()).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+  const title = ((await evaluateWithTimeout<string>(page, "document.title")) || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_TITLE);
 
   const screenshotBuffer = await page.screenshot({
     fullPage: false,
@@ -30,10 +39,10 @@ export async function captureState(page: Page): Promise<PageState> {
   });
   const screenshot = `data:image/jpeg;base64,${screenshotBuffer.toString("base64")}`;
 
-  const extracted = (await page.evaluate(EXTRACT_STATE_SCRIPT)) as {
+  const extracted = await evaluateWithTimeout<{
     headings: string[];
     interactiveElements: InteractiveElement[];
-  };
+  }>(page, EXTRACT_STATE_SCRIPT);
 
   return {
     url,
@@ -51,8 +60,8 @@ export async function visitAndCapture(url: string): Promise<{
 }> {
   const browser = await launchBrowser();
   try {
-    const page = await browser.newPage();
-    await gotoAllowed(page, url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const page = await newSandboxedPage(browser);
+    await gotoAllowed(page, url, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1200);
     const state = await captureState(page);
     return { browser, page, state };
@@ -81,9 +90,10 @@ export async function findElementCandidates(
   targetType: InteractiveElement["type"]
 ): Promise<ElementCandidate[]> {
   await tagInteractiveElements(page);
-  const found = (await page.evaluate(buildFindElementScript(targetLabel, targetType))) as
-    | ElementCandidate[]
-    | null;
+  const found = await evaluateWithTimeout<ElementCandidate[] | null>(
+    page,
+    buildFindElementScript(targetLabel, targetType)
+  );
   return (found ?? []).map((c) => ({ ...c, score: Math.max(0, Math.min(1, c.score / 1000)) }));
 }
 

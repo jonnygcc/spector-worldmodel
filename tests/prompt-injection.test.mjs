@@ -20,6 +20,7 @@ import {
   MAX_LABEL,
   TAG_ELEMENTS_SCRIPT,
 } from "../lib/worldmodel/page-scripts.ts";
+import { resolveChromiumPath } from "../lib/security/browser-sandbox.ts";
 
 // ============================================================
 // Hallazgo 4: placeholders en una sola pasada
@@ -215,9 +216,8 @@ describe("hallazgo 1: evidencia del objetivo", () => {
 // ============================================================
 // Hallazgos 3 y 6: la captura, en un Chromium real
 // ============================================================
-const CHROMIUM =
-  process.env.SPECTOR_CHROMIUM_PATH ??
-  "C:/Users/user/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe";
+// SPECTOR_CHROMIUM_PATH, o el Chromium que instala playwright-core.
+const CHROMIUM = resolveChromiumPath();
 
 describe("hallazgos 3 y 6: captura", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
   let browser, state;

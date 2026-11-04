@@ -14,6 +14,11 @@ export const MAX_HEADING = 150;
 export const MAX_HEADINGS = 15;
 export const MAX_LABEL = 70;
 export const MAX_ELEMENTS = 100;
+// Tope del DOM que se procesa (paso 8): elementos etiquetados por página y
+// encabezados que se recorren. Una página con cientos de miles de nodos
+// no multiplica el trabajo de cada script.
+export const MAX_TAGGED = 2000;
+export const MAX_HEADINGS_SCANNED = 200;
 
 const IS_VISIBLE = `
   const isVisible = (el) => {
@@ -69,13 +74,16 @@ export const TAG_ELEMENTS_SCRIPT = `
     'textarea'
   ];
 
-  selectors.forEach((sel) => {
-    document.querySelectorAll(sel).forEach((el) => {
-      if (el.hasAttribute('data-spector-id')) return;
-      if (!isVisible(el)) return;
+  let tagged = document.querySelectorAll('[data-spector-id]').length;
+  for (const sel of selectors) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (tagged >= ${MAX_TAGGED}) break;
+      if (el.hasAttribute('data-spector-id')) continue;
+      if (!isVisible(el)) continue;
       el.setAttribute('data-spector-id', 'sp-' + (counter++));
-    });
-  });
+      tagged += 1;
+    }
+  }
   window.__spectorCounter = counter;
 })()
 `;
@@ -88,7 +96,7 @@ export const EXTRACT_STATE_SCRIPT = `
 
   // Solo encabezados visibles, con el texto que se ve.
   const headings = Array.prototype.slice
-    .call(document.querySelectorAll('h1, h2, h3'))
+    .call(document.querySelectorAll('h1, h2, h3'), 0, ${MAX_HEADINGS_SCANNED})
     .filter(isVisible)
     .map((el) => el.tagName + ': ' + clip(el.innerText, ${MAX_HEADING}))
     .filter((h) => !/: $/.test(h))

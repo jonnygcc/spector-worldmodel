@@ -256,7 +256,8 @@ const proxies = new WeakMap<Browser, EgressProxy>();
 // directo. WebRTC queda limitado a lo que va por el proxy (sin UDP propio).
 export async function launchGuardedChromium(
   executablePath: string,
-  policy: GuardPolicy = DEFAULT_POLICY
+  policy: GuardPolicy = DEFAULT_POLICY,
+  args: string[] = []
 ): Promise<Browser> {
   const proxy = await startEgressProxy(policy);
   try {
@@ -264,7 +265,7 @@ export async function launchGuardedChromium(
       executablePath,
       headless: true,
       proxy: { server: proxy.server },
-      args: ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
+      args: ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp", ...args],
     });
     proxies.set(browser, proxy);
     browser.on("disconnected", () => void proxy.close());

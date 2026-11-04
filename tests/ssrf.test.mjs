@@ -12,6 +12,7 @@ import {
   URL_NOT_ALLOWED,
   UrlNotAllowedError,
 } from "../lib/security/url-guard.ts";
+import { resolveChromiumPath } from "../lib/security/browser-sandbox.ts";
 
 // Resolución de DNS falsa: los tests no dependen de la red.
 const fakeDns = (table) => ({
@@ -33,7 +34,8 @@ async function rejects(url, policy = PUBLIC_DNS) {
 
 describe("esquemas", () => {
   for (const url of [
-    "file:///C:/Users/user/spector-worldmodel/.env.local",
+    "file:///home/user/app/.env.local",
+    "file:///C:/app/.env.local",
     "file:///etc/passwd",
     "data:text/html,<h1>hi</h1>",
     "ftp://example.com/",
@@ -138,9 +140,8 @@ describe("puertos", () => {
 // Dos servidores en 127.0.0.1. El "público" es una excepción explícita de
 // la política (solo su puerto); el "interno" no lo es, y cuenta cuántas
 // veces lo tocan: tiene que quedar en 0.
-const CHROMIUM =
-  process.env.SPECTOR_CHROMIUM_PATH ??
-  "C:/Users/user/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe";
+// SPECTOR_CHROMIUM_PATH, o el Chromium que instala playwright-core.
+const CHROMIUM = resolveChromiumPath();
 
 describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
   let publicServer, internalServer, publicPort, internalPort, policy, browser;
