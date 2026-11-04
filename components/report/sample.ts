@@ -1,12 +1,7 @@
-// Datos de ejemplo del frame Desktop/Reporte. Fijos: el motor no está
-// conectado. Lo que el frame no trae está marcado como "no está en el frame".
+// Fixed sample data from the Desktop/Report frame; anything the frame lacks is marked as such.
 
-// UNREACHABLE: la ruta se ejecutó pero no encontró camino al objetivo ni
-// tras replanificar. SUCCESS y FRICTION solo existen en el World Model:
-// escenarios predichos, que nunca se ejecutan (BLOCKED vale para los dos).
-// "unverified" no es un resultado sino la falta de evidencia: la ruta
-// llegó al final de su plan, pero el código no encontró en la página final
-// las señales del objetivo.
+// SUCCESS and FRICTION only exist in the World Model (never executed); BLOCKED applies to both.
+// "unverified" is missing evidence, not an outcome: the plan ended but the goal signals weren't found.
 export type Status =
   | "recommended"
   | "executed"
@@ -17,9 +12,8 @@ export type Status =
   | "unverified";
 export type Friction = "low" | "medium" | "high";
 
-// `screenshot` solo existe en rutas verificadas en el navegador; sin ella
-// la captura muestra el esqueleto de página. `unreached`: el paso queda en o después del punto donde la ruta se
-// detuvo; lo calcula withReach (pathSteps.ts), no se escribe a mano.
+// `screenshot` only exists on browser-verified routes. `unreached` is computed by withReach
+// (pathSteps.ts), never written by hand.
 export type Step = {
   label: string;
   failed?: boolean;
@@ -29,25 +23,20 @@ export type Step = {
 
 export type Route = {
   user: string;
-  // World Model: tipo de escenario, en gris bajo el nombre.
+  // World Model: scenario kind, shown in gray under the name.
   subtitle?: string;
   time: string;
   probability: string;
   friction: { value: number; level: Friction };
-  // Sin estado solo en datos antiguos; las rutas del motor siempre lo traen.
+  // Missing only in old data; engine routes always have it.
   status?: Status;
-  // Escenario predicho por el World Model, no ejecutado: time y steps con
-  // "~", barra de fricción punteada y pasos sin captura.
+  // Predicted by the World Model, never executed: "~" on time and steps, dotted friction bar, no screenshots.
   estimated?: boolean;
-  // Pasos que dice la fila cuando no coinciden con los dibujados (un
-  // escenario predicho estima más pasos de los que detalla). Sin él, la
-  // columna cuenta `steps` (sin los replanificados).
+  // Step count shown when it differs from the drawn steps (a prediction may estimate more than it details).
   stepCount?: number;
-  // Cuántos pasos (por posición en `steps`) se alcanzaron. Sin él: todos
-  // en una ruta completada; en una BLOCKED o UNREACHABLE, hasta el primer
-  // paso que falló.
+  // Reached steps, by position. Without it: all of them on a completed route, else up to the first failure.
   reachedSteps?: number;
-  // World Model: qué cambiar, en una frase. Va en una card bajo el timeline.
+  // World Model: what to change, in one sentence; shown in a card under the timeline.
   recommendation?: string;
   steps: Step[];
 };
@@ -74,7 +63,7 @@ export const ROUTES: Route[] = [
       { label: "Choose the Business plan" },
       { label: "Enter a work email" },
       { label: "Name the workspace" },
-      // No está en el frame: la fila dice 6 pasos y el frame dibuja 5.
+      // Not in the frame: the row says 6 steps and the frame draws 5.
       { label: "Confirm the team plan" },
     ],
   },
@@ -84,7 +73,7 @@ export const ROUTES: Route[] = [
     probability: "44%",
     friction: { value: 48, level: "medium" },
     status: "executed",
-    // No está en el frame: esta fila no se dibuja expandida.
+    // Not in the frame: this row is never drawn expanded.
     steps: [
       { label: "Open linear.app" },
       { label: "Open the menu" },
@@ -103,8 +92,7 @@ export const ROUTES: Route[] = [
     probability: "12%",
     friction: { value: 67, level: "high" },
     status: "blocked",
-    // Frame Reporte – blocked. Tres pasos: la columna STEPS y la secuencia
-    // dicen lo mismo (el frame decía 11 en la columna).
+    // Blocked report frame: STEPS and the sequence agree on three (the frame said 11).
     steps: [
       { label: "Open linear.app" },
       { label: "Click “Pricing” in the header" },

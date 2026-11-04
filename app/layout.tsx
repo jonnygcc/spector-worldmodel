@@ -5,8 +5,7 @@ import SiteHeader from "@/components/site/SiteHeader";
 import SiteFooter from "@/components/site/SiteFooter";
 import "./globals.css";
 
-// Self-hosted por next/font. El tema (globals.css) apunta a esta variable
-// desde --font-heading y --font-body.
+// Self-hosted by next/font; globals.css points --font-heading and --font-body at this variable.
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
@@ -25,18 +24,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={spaceGrotesk.variable}>
-      {/* suppressHydrationWarning: extensiones del navegador (p. ej. ColorZilla
-          con cz-shortcut-listen) añaden atributos al body antes de hidratar.
-          Solo afecta a los atributos del propio body, no a sus hijos. */}
+      {/* Browser extensions (e.g. ColorZilla's cz-shortcut-listen) add body attributes before hydration. */}
       <body suppressHydrationWarning className="bg-neutral-100 text-neutral-800 font-body antialiased min-h-screen flex flex-col">
-        {/* Grosor de todos los iconos de Lucide. Paper los dibuja a 1px y
-            Lucide trae 2; 1.5 es el punto medio acordado. Único lugar donde
-            se define: ningún icono lleva strokeWidth propio. */}
+        {/* The only place Lucide's stroke width is set: Paper draws 1px, Lucide ships 2, 1.5 was agreed. */}
         <LucideProvider strokeWidth={1.5}>
           <SiteHeader />
-          {/* Solo ancho máximo y centrado: cada pantalla define su propio
-              espaciado. En columna para que una pantalla pueda ocupar el
-              alto libre entre header y footer (el Loading en móvil). */}
+          {/* Column layout so a screen can fill the height between header and footer (mobile Loading). */}
           <main className="flex-1 w-full max-w-content mx-auto flex flex-col">
             {children}
           </main>

@@ -8,28 +8,24 @@ import Tooltip from "@/components/tooltip/Tooltip";
 import StepNumber from "./StepNumber";
 import type { Step } from "./sample";
 
-// SIN TOKEN — medidas propias de la captura, todas del frame.
-const THUMB_W = "w-[200px]"; // ancho de la captura, y de cada paso
-const THUMB = `${THUMB_W} h-[125px]`; // captura 200×125
-const THUMB_ROW = "h-[125px]"; // alto de la fila de capturas, para centrar las flechas
-// Padding interno del carril: con overflow-x: auto el overflow-y no puede
-// ser visible, y el borde superior de las tarjetas se recortaba. 6px
-// arriba, 2px abajo y 3px a los lados (en móvil manda el gutter de 16).
+// NO TOKEN — screenshot measures, all from the frame.
+const THUMB_W = "w-[200px]"; // screenshot width, and each step's
+const THUMB = `${THUMB_W} h-[125px]`; // 200×125 screenshot
+const THUMB_ROW = "h-[125px]"; // screenshot row height, to center the arrows
+// With overflow-x: auto, overflow-y can't be visible; this inner padding keeps the cards'
+// top border from being clipped.
 const RAIL_PAD = "pb-[2px] pt-[6px] px-16 lg:pl-[3px]";
-const ARROW_TOP = "top-[6px]"; // las flechas bajan lo mismo que las capturas
-// Esqueleto de página dentro de la captura (placeholder hasta tener
-// capturas reales): barras de 36×6, 120×8, 150×6, 85×6 y pastilla 48×14.
+const ARROW_TOP = "top-[6px]"; // the arrows drop as much as the screenshots
+// Page skeleton inside the screenshot slot, a placeholder for steps without one.
 const BAR = "rounded-[1px] bg-neutral-200";
 
-// Movimiento de las flechas: el spring del diseño (stiffness 200, damping
-// 40, mass 1) es sobreamortiguado, sin rebote. Se aproxima con 500ms y
-// cubic-bezier(0.22, 1, 0.36, 1): arranca rápido y frena suave al llegar.
+// The design's spring (stiffness 200, damping 40, mass 1) is overdamped, so 500ms with this
+// cubic-bezier approximates it: fast start, soft stop.
 const SCROLL_DURATION = 500;
 const scrollEase = cubicBezier(0.22, 1, 0.36, 1);
 
-// Curva cubic-bezier(x1, y1, x2, y2) como en CSS: dado el progreso en el
-// tiempo (x), devuelve el progreso del movimiento (y). Resuelve x(t) con
-// Newton y, si no converge, por bisección.
+// Same semantics as CSS cubic-bezier: time progress (x) → movement progress (y). Solves x(t)
+// with Newton, falling back to bisection.
 function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
   const coord = (t: number, a: number, b: number) =>
     3 * a * t * (1 - t) ** 2 + 3 * b * t ** 2 * (1 - t) + t ** 3;
@@ -60,13 +56,8 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
   };
 }
 
-// Cualquier paso se abre en el visor: con captura muestra la imagen; sin
-// ella (escenario del World Model o datos de ejemplo), la descripción completa.
-//
-// Foco de teclado (y el paso que queda enfocado al cerrar el visor): no
-// lleva el anillo global, que queda fuera del recuadro y lo recorta el
-// scroll de la tira. El recuadro conserva su borde de 1px y solo cambia
-// su color a accent.
+// No global focus ring: it would sit outside the box and get clipped by the strip's scroll,
+// so only the 1px border turns accent.
 const FOCUS = "group-focus-visible/thumb:border-accent";
 
 function Thumb({
@@ -82,8 +73,7 @@ function Thumb({
   label: string;
   onOpen: () => void;
 }) {
-  // Borde sólido neutral-200 (frame Desktop/Reporte/World Model), también
-  // en los pasos predichos; danger si el paso falló.
+  // Solid neutral-200 border, predicted steps included; danger when the step failed.
   const border = failed ? "border-danger" : "border-neutral-200";
 
   return (
@@ -94,8 +84,7 @@ function Thumb({
       className={`group/thumb shrink-0 cursor-zoom-in rounded-sm focus-visible:outline-none ${THUMB}`}
     >
       {screenshot ? (
-        // Captura real del navegador (data URL en JPEG): no pasa por
-        // next/image porque no hay nada que optimizar.
+        // A JPEG data URL: next/image has nothing to optimize.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={screenshot}
@@ -103,9 +92,7 @@ function Thumb({
           className={`size-full rounded-sm border bg-neutral-100 object-cover object-top ${border} ${FOCUS}`}
         />
       ) : simulated ? (
-        // Escenario predicho: el paso no se ejecutó, no hay captura. El recuadro
-        // dice "Predicted", en vez de un esqueleto que parece una carga
-        // fallida.
+        // Predicted steps never ran: "Predicted" instead of a skeleton that looks like a failed load.
         <span
           className={`flex size-full items-center justify-center rounded-sm border bg-neutral-100 ${border} ${FOCUS}`}
         >
@@ -134,12 +121,8 @@ function Thumb({
   );
 }
 
-// Descripción de un paso, cortada a 3 líneas con "…". Solo si de verdad
-// se corta, al pasar el cursor muestra el texto completo en un tooltip
-// claro. El texto entero está en el DOM (line-clamp solo lo oculta a la
-// vista), así que el lector de pantalla lo lee completo.
-// `full` (World Model): sin corte, el texto hace wrap en las líneas que
-// necesite; el motor ya lo limita a una acción corta.
+// Clamped to 3 lines; the tooltip only appears when the text is actually cut. The full text stays
+// in the DOM, so screen readers read all of it. `full` (World Model) never clamps.
 function StepLabel({ step, full = false }: { step: Step; full?: boolean }) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [clipped, setClipped] = useState(false);
@@ -149,9 +132,8 @@ function StepLabel({ step, full = false }: { step: Step; full?: boolean }) {
     if (!el) return;
     const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
     measure();
-    // Con la fuente aún sin cargar el texto ocupa menos y no se corta; al
-    // cargar, el párrafo sigue midiendo 3 líneas y el ResizeObserver no
-    // salta. Se vuelve a medir cuando las fuentes están listas.
+    // Before the font loads the text is shorter and isn't cut, and the ResizeObserver won't fire
+    // because the box stays 3 lines tall, so measure again once fonts are ready.
     let alive = true;
     document.fonts.ready.then(() => alive && measure());
     const observer = new ResizeObserver(measure);
@@ -173,9 +155,8 @@ function StepLabel({ step, full = false }: { step: Step; full?: boolean }) {
     </p>
   );
 
-  // Siempre dentro del Tooltip, apagado si no se corta: si el envoltorio
-  // apareciera y desapareciera, el párrafo se volvería a montar y el
-  // ResizeObserver quedaría mirando el nodo viejo.
+  // Always wrapped, just disabled when not cut: toggling the wrapper would remount the paragraph
+  // and leave the ResizeObserver watching the old node.
   return (
     <Tooltip content={step.label} tone="light" className="flex" disabled={!clipped}>
       {text}
@@ -183,24 +164,14 @@ function StepLabel({ step, full = false }: { step: Step; full?: boolean }) {
   );
 }
 
-// Secuencia de capturas de una ruta. Cada paso: captura, número y
-// descripción. Cada paso mide lo mismo que su captura: la descripción hace
-// wrap hasta 3 líneas y, si se corta, el texto completo sale en un tooltip
-// al pasar el cursor (en el World Model, entera y sin corte). Una línea pasa por detrás de los números, de la
-// primera a la última. Un tramo va en azul solo si une dos pasos
-// alcanzados; si entra en un paso no alcanzado (`unreached`, ver
-// withReach), o sale de él, va en neutral-200. Así el
-// tramo que entra en el paso donde la ruta se detuvo ya es gris. El paso
-// que falló dentro del tramo alcanzado se marca en danger. Si
-// no caben, la fila se desplaza con las flechas. Click en una captura la
-// abre a tamaño completo (ScreenshotViewer).
+// A segment is blue only between two reached steps, so the one entering the stop step is
+// already gray. Steps that don't fit scroll with the arrows; a click opens ScreenshotViewer.
 export default function StepStrip({
   steps,
   simulated = false,
 }: {
   steps: Step[];
-  // Escenario del World Model, no ejecutado: cada paso es un recuadro
-  // con "Predicted", nunca una captura.
+  // Not executed: every step is a "Predicted" box, never a screenshot.
   simulated?: boolean;
 }) {
   const scrollerRef = useRef<HTMLOListElement>(null);
@@ -221,23 +192,8 @@ export default function StepStrip({
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // Desplazamiento de las flechas, animado a mano. Sin behavior: "smooth"
-  // ni scroll-behavior en CSS: usan la curva del navegador, y Chrome los
-  // anula si el sistema tiene las animaciones desactivadas.
-  // - Al pulsar: posición actual de scrollLeft y posición destino (un paso
-  //   = ancho de la captura + gap, dentro de los límites del scroll).
-  // - requestAnimationFrame durante SCROLL_DURATION (500ms); en cada frame
-  //   el progreso 0–1 pasa por scrollEase (cubic-bezier(0.22, 1, 0.36, 1))
-  //   y se asigna a scrollLeft directamente.
-  // - Un nuevo click cancela la animación en curso y arranca otra desde la
-  //   posición actual. El destino se cuenta desde el destino anterior, no
-  //   desde la posición a medio camino, para que la tira siempre se pare
-  //   alineada con una captura.
-  // Se anima también con prefers-reduced-motion: es un movimiento corto
-  // que dispara el propio usuario.
-  //
-  // El scroll táctil, la rueda y el arrastre son los nativos: si el usuario
-  // toca la tira durante la animación, se cancela y manda él.
+  // Animated by hand: behavior "smooth" uses the browser's curve and Chrome drops it under reduced motion.
+  // Each target chains from the previous one so the strip always stops aligned to a screenshot.
   const animation = useRef<{ frame: number; target: number } | null>(null);
 
   function stopAnimation() {
@@ -273,8 +229,7 @@ export default function StepStrip({
       <ol
         ref={scrollerRef}
         onScroll={update}
-        // Scroll nativo del usuario (toque, rueda o arrastre): la animación
-        // de la flecha se cancela y no pelea con él.
+        // Native user scroll (touch, wheel, drag) cancels the arrow animation instead of fighting it.
         onPointerDown={stopAnimation}
         onTouchStart={stopAnimation}
         onWheel={stopAnimation}

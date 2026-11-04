@@ -11,45 +11,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-// Tooltip reutilizable. Burbuja neutral-800 con texto neutral-100 en
-// text-small, radius-md, padding spacing-8 y una flecha que apunta al
-// elemento. Se abre:
-//
-// - Con el ratón: al entrar en el elemento, sin retraso. Al salir se
-//   oculta.
-//   Aparece con un fundido de opacidad de 300ms y se va con uno de 150ms;
-//   durante la salida sigue montada (sin recibir el puntero) y luego se
-//   desmonta.
-// - Con teclado: al enfocar con :focus-visible.
-//   · `focusable`: el propio envoltorio entra en el orden de tabulación
-//     (para elementos no interactivos, como un encabezado de columna).
-//   · Si el elemento está dentro de un control que ya recibe el foco (el
-//     botón de una fila), ese control lleva `data-tip-anchor` y
-//     `aria-describedby` con el `id` del tooltip; al enfocarlo se abre.
-// - En táctil: tocar el elemento lo abre y lo cierra; tocar fuera lo
-//   cierra. El toque no llega al control que lo contiene.
-// Escape, el scroll y el cambio de tamaño de la ventana lo cierran.
-//
-// La burbuja se pinta en un portal con posición fija: no la recortan los
-// contenedores con overflow (el panel animado de las filas) y, cerrada,
-// no existe, así que nunca genera scroll horizontal. Va encima del
-// elemento; si no cabe, debajo. Se desplaza en horizontal para no salirse
-// de la pantalla (margen spacing-16) y la flecha sigue apuntando al
-// centro del elemento.
-//
-// El texto vive siempre en un span `hidden` con el `id`, para que
-// aria-describedby funcione aunque la burbuja esté cerrada.
-//
-// `tone="light"`: burbuja neutral-100 con texto neutral-800 y sombra
-// shadow-control, para leer texto largo (las descripciones de paso
-// cortadas). `className` reemplaza el display del envoltorio (inline-flex)
-// cuando el elemento tiene que ocupar su ancho, como un párrafo.
-// `disabled`: no se abre. Para apagarlo sin desmontar el envoltorio (y
-// con él al hijo, que perdería su ref).
+// Rendered in a fixed portal so overflow containers can't clip it; the text lives in a hidden span
+// so aria-describedby works while closed. `disabled` keeps the wrapper mounted (the child keeps its ref).
 
-// Separación entre la punta de la flecha y el elemento (spacing-8), alto
-// de la flecha (spacing-4) y margen con el borde de la pantalla
-// (spacing-16), en px para el cálculo de posición.
+// Arrow gap (spacing-8), arrow height (spacing-4) and screen margin (spacing-16), in px for positioning.
 const GAP = 8;
 const ARROW = 4;
 const EDGE = 16;
@@ -82,7 +47,7 @@ export default function Tooltip({
   const bubbleRef = useRef<HTMLSpanElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointer = useRef<string>("mouse");
-  // open: debe verse. mounted: existe en el DOM (también mientras se va).
+  // open: should be visible. mounted: in the DOM, also while fading out.
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
@@ -99,7 +64,7 @@ export default function Tooltip({
     setOpen(true);
   }, [cancelClose, disabled]);
 
-  // Fundido de salida (150ms, el mismo que duration-150) y desmontaje.
+  // Fade-out (150ms, same as duration-150), then unmount.
   const hide = useCallback(() => {
     cancelClose();
     setOpen(false);
@@ -109,7 +74,7 @@ export default function Tooltip({
     }, 150);
   }, [cancelClose]);
 
-  // Posición: se mide la burbuja ya pintada (invisible) y se coloca.
+  // Measure the bubble once painted (invisible), then place it.
   useLayoutEffect(() => {
     if (!mounted || placement) return;
     const trigger = triggerRef.current;
@@ -132,7 +97,7 @@ export default function Tooltip({
     });
   }, [mounted, placement]);
 
-  // Abierto: Escape, toque fuera, scroll o resize lo cierran.
+  // While open: Escape, an outside tap, scroll or resize close it.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -155,7 +120,7 @@ export default function Tooltip({
     };
   }, [open, hide]);
 
-  // Control que contiene el elemento y recibe el foco por él (data-tip-anchor).
+  // Control that contains the element and takes focus on its behalf (data-tip-anchor).
   useEffect(() => {
     const anchor = triggerRef.current?.closest<HTMLElement>("[data-tip-anchor]");
     if (!anchor || focusable) return;
@@ -194,7 +159,7 @@ export default function Tooltip({
       }}
       onClick={(e) => {
         if (lastPointer.current !== "touch") return;
-        // Toque: abre o cierra, y no activa el control que lo contiene.
+        // Tap: toggles, without activating the containing control.
         e.preventDefault();
         e.stopPropagation();
         if (open) hide();
@@ -203,8 +168,7 @@ export default function Tooltip({
       className={className}
     >
       {children}
-      {/* hidden: fuera del nombre accesible del control que lo contiene,
-          pero aria-describedby sí lee el texto de elementos ocultos. */}
+      {/* hidden keeps it out of the control's accessible name; aria-describedby still reads hidden text. */}
       <span id={tipId} hidden>
         {content}
       </span>
@@ -214,8 +178,7 @@ export default function Tooltip({
             ref={bubbleRef}
             aria-hidden="true"
             style={placement ? { top: placement.top, left: placement.left } : { top: 0, left: 0 }}
-            // Se pinta invisible y a opacidad 0 para medirla; al colocarla
-            // entra en 300ms y, al cerrarse, sale en 150ms.
+            // Painted invisible at opacity 0 to measure it; fades in over 300ms and out over 150ms.
             className={`fixed z-50 block w-max max-w-tooltip rounded-md p-8 text-left font-body text-small font-regular normal-case leading-sm tracking-normal transition-opacity ${bubbleTone} motion-reduce:transition-none ${
               !placement
                 ? "invisible opacity-0"
@@ -225,7 +188,7 @@ export default function Tooltip({
             }`}
           >
             {content}
-            {/* Flecha: triángulo de 8×4 (spacing-8 × spacing-4). */}
+            {/* Arrow: 8×4 triangle (spacing-8 × spacing-4). */}
             <span
               style={{ left: placement?.arrowLeft ?? 0 }}
               className={`absolute h-4 w-8 -translate-x-1/2 ${arrowTone} ${

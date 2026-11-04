@@ -1,22 +1,12 @@
-// Scripts que corren dentro de la página (page.evaluate). Se pasan como
-// string para evitar que el compilador inyecte helpers que no existen
-// dentro del navegador.
-//
-// Solo se extrae texto que el usuario ve: innerText (respeta el CSS, no
-// incluye lo oculto) en vez de textContent, encabezados visibles, y nada
-// de meta description. Cada texto tiene tope (inyección de prompt y
-// volumen, paso 7).
-//
-// Módulo sin dependencias: los tests lo cargan con `node --test`.
+// Passed as strings so the compiler can't inject helpers that don't exist in the page. Only text the
+// user sees is extracted (innerText, visible headings, no meta description), each one capped.
 
 export const MAX_TITLE = 200;
 export const MAX_HEADING = 150;
 export const MAX_HEADINGS = 15;
 export const MAX_LABEL = 70;
 export const MAX_ELEMENTS = 100;
-// Tope del DOM que se procesa (paso 8): elementos etiquetados por página y
-// encabezados que se recorren. Una página con cientos de miles de nodos
-// no multiplica el trabajo de cada script.
+// Caps the DOM work: a page with hundreds of thousands of nodes doesn't multiply each script's cost.
 export const MAX_TAGGED = 2000;
 export const MAX_HEADINGS_SCANNED = 200;
 
@@ -32,9 +22,7 @@ const IS_VISIBLE = `
   };
 `;
 
-// Texto visible de un elemento interactivo: el que lee el usuario o, si
-// no tiene, su nombre accesible. Lo usan la captura y el emparejador, que
-// deben ver la misma etiqueta.
+// Capture and matcher must see the same label: the visible text, or the accessible name without one.
 const LABEL_OF = `
   const labelOf = (el, elType) => {
     if (elType === 'input') {
@@ -51,16 +39,11 @@ const LABEL_OF = `
   };
 `;
 
-/**
- * Inyecta un atributo data-spector-id unico a cada elemento interactivo visible.
- */
+/** Tags every visible interactive element with a unique data-spector-id. */
 export const TAG_ELEMENTS_SCRIPT = `
 (() => {
-  // El contador vive en la página: si empezara en 0 en cada llamada, los
-  // elementos que aparecen después (un desplegable) repetirían ids ya
-  // usados, y el selector resolvería al primero del DOM. En Google, el
-  // "Buscar con Google" del desplegable salía como sp-0, igual que el
-  // botón de Aplicaciones, y se pulsaba ese.
+  // The counter lives in the page: restarting at 0 gave late elements (a dropdown) ids already in use,
+  // so on Google the dropdown's search button became sp-0 and the Apps button got clicked instead.
   let counter = window.__spectorCounter || 0;
   ${IS_VISIBLE}
   const selectors = [
@@ -94,7 +77,7 @@ export const EXTRACT_STATE_SCRIPT = `
   ${LABEL_OF}
   const clip = (s, max) => (s || '').replace(/\\s+/g, ' ').trim().substring(0, max);
 
-  // Solo encabezados visibles, con el texto que se ve.
+  // Visible headings only, with the text the user actually sees.
   const headings = Array.prototype.slice
     .call(document.querySelectorAll('h1, h2, h3'), 0, ${MAX_HEADINGS_SCANNED})
     .filter(isVisible)
@@ -105,7 +88,7 @@ export const EXTRACT_STATE_SCRIPT = `
   const interactiveElements = [];
 
   document.querySelectorAll('[data-spector-id]').forEach((el) => {
-    // Un elemento etiquetado antes puede haberse ocultado después.
+    // An element tagged earlier may have been hidden since.
     if (!isVisible(el)) return;
     const id = el.getAttribute('data-spector-id');
     const rect = el.getBoundingClientRect();
@@ -122,8 +105,8 @@ export const EXTRACT_STATE_SCRIPT = `
     });
   });
 
-  // Hasta ${MAX_ELEMENTS} en orden del documento. Antes eran 40, y en una página de
-  // categoría eran todos de la cabecera y los filtros: ningún producto.
+  // Up to ${MAX_ELEMENTS} in document order: with 40, a category page returned only header and filter
+  // elements, no products.
   return {
     headings: headings,
     interactiveElements: interactiveElements.slice(0, ${MAX_ELEMENTS})
@@ -138,7 +121,7 @@ export const buildFindElementScript = (label: string, type: string): string => `
   const type = ${JSON.stringify(type)};
   const candidates = [];
 
-  // bag y basket valen lo mismo que cart: "Add to Cart" encuentra "Add to bag".
+  // bag and basket count as cart, so "Add to Cart" finds "Add to bag".
   const normalize = (s) => s.replace(/\\s+/g, ' ').trim().toLowerCase().replace(/\\b(bag|basket)\\b/g, 'cart');
   const stripNumbers = (s) => s.replace(/\\d+/g, '#').trim();
 
@@ -174,13 +157,11 @@ export const buildFindElementScript = (label: string, type: string): string => `
 
     if (score < 0) return;
 
-    // Cobertura: qué parte de la etiqueta más larga comparten. "Search"
-    // empieza igual que "search button", pero solo cubre la mitad.
+    // Share of the longer label they have in common: "Search" starts like "search button" but covers half.
     const coverage = Math.min(a.length, targetNorm.length) / Math.max(a.length, targetNorm.length);
 
-    // ¿Es lo que de verdad se pulsa en su centro? Google tiene dos botones
-    // "Buscar con Google" y uno queda tapado por el desplegable de
-    // sugerencias: a igual puntaje gana el que está encima.
+    // Is it what a click at its center actually hits? Google has two search buttons and the suggestions
+    // dropdown covers one, so on equal score the one on top wins.
     const rect = el.getBoundingClientRect();
     const hitEl = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
     const onTop = !!hitEl && (hitEl === el || el.contains(hitEl));
@@ -191,8 +172,7 @@ export const buildFindElementScript = (label: string, type: string): string => `
   if (candidates.length === 0) return null;
   candidates.sort((x, y) => y.score - x.score || (y.onTop ? 1 : 0) - (x.onTop ? 1 : 0));
 
-  // Los mejores, uno por etiqueta: dos botones "Google Search" son el
-  // mismo destino, no una ambigüedad.
+  // One per label: two "Google Search" buttons are the same target, not an ambiguity.
   const seen = {};
   const top = [];
   candidates.forEach((c) => {

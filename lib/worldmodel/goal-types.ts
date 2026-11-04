@@ -1,9 +1,7 @@
 import { InteractiveElement, PageState } from "./types";
 import type { GoalSignals } from "./goal-evidence";
 
-// ============================================================
-// GOALS: que quiere lograr el usuario en el sitio
-// ============================================================
+// ---- Goals: what the user wants to achieve on the site ----
 export type GoalId =
   | "signup"
   | "purchase"
@@ -13,7 +11,7 @@ export type GoalId =
   | "general_scan";
 
 export interface Goal {
-  // "custom": objetivo escrito por el usuario (goalFromText).
+  // "custom": a goal typed by the user (goalFromText).
   id: GoalId | "custom";
   label: string;
   description: string;
@@ -67,9 +65,7 @@ export const GOALS: Record<GoalId, Goal> = {
   },
 };
 
-// ============================================================
-// PERSONAS: quien es el usuario que recorre el sitio
-// ============================================================
+// ---- Personas: who is browsing the site ----
 export type PersonaMode = "automatic" | "personal";
 
 export interface Persona {
@@ -135,8 +131,7 @@ export interface PersonaSelection {
   resolved: Persona;
 }
 
-// Objetivo escrito por el usuario en la barra. El texto es el objetivo tal
-// cual: los prompts lo reciben como descripción y criterio de éxito.
+// The text is the goal as typed: prompts get it as both description and success criteria.
 export function goalFromText(text: string): Goal {
   const goal = text.trim();
   return {
@@ -161,10 +156,8 @@ export function pickAutoPersona(goalId: GoalId | "custom"): Persona {
   return AUTO_PERSONAS.find((p) => p.id === id) || AUTO_PERSONAS[1];
 }
 
-// ============================================================
-// ROUTES: los distintos caminos hacia un mismo objetivo
-// ============================================================
-// Qué debería pasar con la URL tras la acción de un paso.
+// ---- Routes: the different paths toward the same goal ----
+// What should happen to the URL after a step's action.
 export type NavigationExpectation = "same-page" | "navigate" | "unknown";
 
 export interface RouteStep {
@@ -174,65 +167,57 @@ export interface RouteStep {
   targetElement: string;
   targetType: InteractiveElement["type"];
   value?: string;
-  // Expectativa verificable sin el modelo, emitida por el dreamer.
+  // An expectation checkable without the model, emitted by the dreamer.
   navigationExpected?: NavigationExpectation;
-  // Fragmento de ruta esperado tras la acción ("/cart", "/products/"), o null.
+  // Expected path fragment after the action ("/cart", "/products/"), or null.
   expectedUrlHint?: string | null;
-  // 1 a 3 textos que deberían aparecer en la página tras la acción.
+  // 1 to 3 texts that should appear on the page after the action.
   expectedSignals?: string[];
 }
 
-// Resultado de comprobar la expectativa de un paso contra la página real.
+// Result of checking a step's expectation against the real page.
 export type StepCheck = "match" | "partial" | "diverged";
 
-// Comparación predicho/real de un paso ejecutado (o intentado).
+// Predicted vs. actual for an executed (or attempted) step.
 export interface RouteStepResult {
-  // El paso que se intentó, tal como estaba en el plan en ese momento (el
-  // inicial o el de un re-sueño).
+  // The step as it was in the plan at that moment (the initial one or a re-plan's).
   step: RouteStep;
-  // Plan del que salió el paso: 0 = el sueño inicial, 1 y 2 = re-sueños.
+  // Plan the step came from: 0 = initial dream, 1 and 2 = re-plans.
   plan: number;
-  // Elemento que se encontró para el targetElement, y su puntaje de
-  // emparejamiento (0–1). null si no se encontró ninguno.
+  // Element found for targetElement and its match score (0–1); null if none.
   found: { label: string; score: number } | null;
-  // Otros candidatos con puntaje parecido al elegido: si los hay, el paso
-  // era ambiguo y se re-soñó sin actuar.
+  // Other candidates scoring close to the chosen one: the step was ambiguous and re-planned without acting.
   rivals?: { label: string; score: number }[];
   executed: boolean;
   stateChanged: boolean;
-  // Comprobaciones tras la acción y su veredicto.
+  // Post-action checks and their verdict.
   check: StepCheck;
   checks: {
     urlChanged: boolean;
-    urlAsExpected: boolean | null; // null: la expectativa era "unknown"
-    urlHintMatched: boolean | null; // null: no había pista
+    urlAsExpected: boolean | null; // null: the expectation was "unknown"
+    urlHintMatched: boolean | null; // null: there was no hint
     signalsFound: string[];
     signalsMissing: string[];
-    nextElementFound: boolean | null; // null: era el último paso
+    nextElementFound: boolean | null; // null: it was the last step
   };
   actualUrl: string;
   actualTitle: string;
   screenshot: string;
   realFriction: number;
   whatHappened: string;
-  // Este paso disparó un re-sueño: antes de actuar (elemento dudoso o
-  // ambiguo) o después (la página no hizo lo esperado).
+  // This step triggered a re-plan: before acting (doubtful or ambiguous element) or after (unexpected page).
   redream?: "before-action" | "after-action";
-  // Tropiezo del motor, no paso del sitio: se guarda y se muestra en la
-  // tira, pero no suma a pasos, tiempo ni fricción.
+  // An engine stumble, not a site step: kept and shown in the strip, but not counted in steps, time or friction.
   discarded?: boolean;
 }
 
-// Cómo terminó una ruta ejecutada.
-// - reached: llegó al objetivo.
-// - blocked: el sitio la detuvo (login, pago, protección anti-bots).
-// - unreachable: no encontró camino tras replanificar.
+// reached: arrived. blocked: stopped by the site (login, payment, bot check). unreachable: no path
+// after re-planning.
 export type RouteOutcome = "reached" | "blocked" | "unreachable";
 
 export interface Route {
   id: string;
-  // Nombre en inglés para mostrar; entryPoint es la etiqueta literal del
-  // elemento, en el idioma del sitio.
+  // English display name; entryPoint is the element's literal label, in the site's language.
   name?: string;
   entryPoint: string;
   entryDescription: string;
@@ -247,27 +232,24 @@ export interface Route {
   realFriction?: number;
   reachedGoal?: boolean;
   outcome?: RouteOutcome;
-  // Si el navegador tuvo que re-soñar la ruta desde la página real.
+  // Whether the browser had to re-plan the route from the real page.
   replanned?: boolean;
   replanCount?: number;
-  // De esos re-sueños, cuántos se dispararon antes de actuar.
+  // How many of those re-plans fired before acting.
   replansBeforeAction?: number;
-  // Pasos del camino que llevó al objetivo (sin los descartados).
+  // Steps of the path that reached the goal, discarded ones excluded.
   pathSteps?: number;
-  // La probabilidad del finder describía el camino del plan inicial; si
-  // se replanificó, el camino recorrido es otro y queda como estimada.
+  // The finder's probability described the initial plan; after a re-plan the walked path differs, so
+  // it's marked as estimated.
   probabilityEstimated?: boolean;
-  // Solo en rutas "reached": si el código encontró en la página final las
-  // señales del objetivo (goal-evidence.ts). Sin esa evidencia la ruta es
-  // UNVERIFIED y no puede ser la recomendada.
+  // Only on "reached" routes: whether code found the goal signals on the final page. Without them the
+  // route is UNVERIFIED and can't be recommended.
   goalVerified?: boolean;
   goalSignalsFound?: string[];
   verdict?: string;
 }
 
-// ============================================================
-// RESULT: el reporte comparativo final
-// ============================================================
+// ---- Result: the final comparison report ----
 export interface RouteComparison {
   url: string;
   goal: Goal;
@@ -275,10 +257,9 @@ export interface RouteComparison {
   personaMode: PersonaMode;
   initialState: PageState;
   routes: Route[];
-  // Rutas que propuso el finder y sobrevivieron al filtro del criterio de
-  // éxito (de ellas se ejecuta un subconjunto en el navegador).
+  // Routes the finder proposed that passed the success-criteria filter (a subset runs in the browser).
   routesFound?: number;
-  // Señales del objetivo, pedidas antes de visitar el sitio.
+  // Goal signals, derived before visiting the site.
   goalSignals?: GoalSignals;
   bestRouteId: string | null;
   mostLikelyRouteId: string | null;

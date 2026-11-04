@@ -1,20 +1,8 @@
 import { GlobeOff } from "lucide-react";
 import RetryButton from "./RetryButton";
 
-// Card de error del análisis (frames Phone/ y Desktop/Loading – error).
-// Mobile-first: en móvil ocupa el ancho disponible (los márgenes los pone
-// la sección) y es más compacta, como en Phone: radius-md, padding 32/24,
-// título h5, texto y botones en text-small. Desde lg, la de escritorio. Bloque
-// semántico en danger-10, así que el botón primario es neutral-800 y no
-// azul (regla de botones del sistema).
-//
-// El ancho no se fija en la card: lo da el bloque de texto (w-message,
-// 295px) y la card se ajusta a él con su padding de 48 → 391px.
-//
-// `reason` es el motivo real que devuelve el motor. El título y la ayuda
-// dependen de la etapa: el diseño solo cubre el fallo al cargar el sitio;
-// para el resto se usa un título genérico. "Try again" solo se ofrece si
-// sirve, y espera lo que haga falta (RetryButton).
+// Inside a danger-10 block the primary button is neutral-800, not blue (button rule). The width
+// comes from the text block (w-message), not the card. Title and help depend on the failed stage.
 export default function LoadError({
   url = "https://linear.app",
   reason,

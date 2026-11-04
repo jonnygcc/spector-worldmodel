@@ -3,23 +3,10 @@ import http from "node:http";
 import net from "node:net";
 import { chromium, type Browser, type Page } from "playwright-core";
 
-// Validador único de las URLs que llegan al navegador (SSRF).
-//
-// Dos capas, con la misma regla:
-// 1. assertAllowedUrl: la URL que manda el usuario, antes de abrir nada.
-// 2. El proxy de salida: el Chromium del análisis sale a la red solo a
-//    través de él. Valida cada conexión (navegación, redirección,
-//    subrecurso, iframe) contra la IP a la que de verdad se conecta. Así
-//    una URL pública que redirige a 127.0.0.1, o un dominio que cambia de
-//    IP entre la validación y la conexión (DNS rebinding), no pasan: no
-//    hay una segunda resolución de DNS que el atacante pueda controlar.
-//
-// Este módulo solo importa módulos de Node y playwright-core: los tests
-// lo cargan directamente con `node --test`.
+// One rule in two layers: assertAllowedUrl before anything opens, and an egress proxy that checks every
+// connection against the IP actually dialed, so redirects and DNS rebinding can't get past it.
 
-// Mensaje único para cualquier rechazo. No dice si el host existe, si el
-// puerto está abierto ni qué regla falló: con eso el validador serviría
-// para escanear la red.
+// One message for every rejection: saying which rule failed would turn the validator into a network scanner.
 export const URL_NOT_ALLOWED = "This URL is not allowed.";
 
 export class UrlNotAllowedError extends Error {
@@ -31,27 +18,25 @@ export class UrlNotAllowedError extends Error {
 
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
 
-// Solo los puertos web estándar, a propósito: un sitio público en :8080
-// no se puede analizar, pero tampoco se puede tocar un servicio interno
-// en cualquier puerto de una IP pública que el atacante controle.
+// Standard web ports only, on purpose: a public site on :8080 can't be analyzed, but no service on
+// another port of an attacker's IP can be reached either.
 const ALLOWED_PORTS: ReadonlySet<number> = new Set([80, 443]);
 
 const BLOCKED_SUFFIXES = [".localhost", ".local", ".internal"];
 
-// Rangos privados y especiales. Además de los pedidos, CGNAT, multicast,
-// reservados, IPv6 único-local, link-local y multicast: tampoco son
-// Internet pública.
+// Besides the requested ranges: CGNAT, multicast, reserved, IPv6 unique-local and link-local,
+// none of which is the public Internet.
 const BLOCKED_RANGES = new net.BlockList();
 for (const [address, prefix] of [
   ["0.0.0.0", 8],
   ["10.0.0.0", 8],
   ["100.64.0.0", 10],
   ["127.0.0.0", 8],
-  ["169.254.0.0", 16], // incluye 169.254.169.254, metadatos de nube
+  ["169.254.0.0", 16], // includes 169.254.169.254, cloud metadata
   ["172.16.0.0", 12],
   ["192.168.0.0", 16],
   ["224.0.0.0", 4],
-  ["240.0.0.0", 4], // incluye 255.255.255.255
+  ["240.0.0.0", 4], // includes 255.255.255.255
 ] as const) {
   BLOCKED_RANGES.addSubnet(address, prefix, "ipv4");
 }
@@ -65,10 +50,8 @@ for (const [address, prefix] of [
   BLOCKED_RANGES.addSubnet(address, prefix, "ipv6");
 }
 
-// IPv4 mapeada (::ffff:0:0/96, como ::ffff:127.0.0.1), entera. Va aparte
-// y solo se consulta con direcciones IPv6: BlockList compara cada IPv4
-// contra las reglas IPv6 en su forma mapeada, y en la lista general esta
-// regla bloquearía todo IPv4.
+// IPv4-mapped (::ffff:0:0/96) lives apart and is only checked for IPv6: BlockList matches every IPv4
+// against IPv6 rules in mapped form, so in the main list this rule would block all IPv4.
 const IPV4_MAPPED = new net.BlockList();
 IPV4_MAPPED.addSubnet("::ffff:0:0", 96, "ipv6");
 
@@ -89,8 +72,7 @@ const isBlockedName = (host: string) =>
 export interface GuardPolicy {
   ports: ReadonlySet<number>;
   lookup: (host: string) => Promise<string[]>;
-  // Excepción explícita ip:puerto al bloqueo de rangos. Solo la usan los
-  // tests, donde un servidor local hace de sitio "público".
+  // Explicit ip:port exception to the range block, only for tests where a local server plays a "public" site.
   allow?: (ip: string, port: number) => boolean;
 }
 
@@ -99,9 +81,8 @@ const systemLookup = async (host: string): Promise<string[]> =>
 
 export const DEFAULT_POLICY: GuardPolicy = { ports: ALLOWED_PORTS, lookup: systemLookup };
 
-// La IP a la que conectarse para host:puerto, o UrlNotAllowedError. Si el
-// nombre resuelve a varias IPs, todas deben estar permitidas: si no, el
-// atacante mezcla una pública con 127.0.0.1 y gana la que toque.
+// Every resolved IP must be allowed; otherwise an attacker mixes a public IP with 127.0.0.1 and wins
+// whenever that one is picked.
 export async function resolveAllowed(
   host: string,
   port: number,
@@ -120,9 +101,7 @@ export async function resolveAllowed(
 
 const portOf = (url: URL) => (url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80);
 
-// La URL del usuario: esquema, host, puerto y la IP resuelta. new URL ya
-// normaliza las formas raras de IPv4 ("2130706433", "0x7f000001",
-// "127.1") a la forma con puntos.
+// new URL already normalizes odd IPv4 forms ("2130706433", "0x7f000001", "127.1") to dotted form.
 export async function assertAllowedUrl(raw: string, policy: GuardPolicy = DEFAULT_POLICY): Promise<URL> {
   let url: URL;
   try {
@@ -135,18 +114,15 @@ export async function assertAllowedUrl(raw: string, policy: GuardPolicy = DEFAUL
   return url;
 }
 
-// ============================================================
-// Proxy de salida del navegador
-// ============================================================
+// ---- Browser egress proxy ----
 export interface EgressProxy {
   server: string;
-  // Conexiones rechazadas desde que arrancó: gotoAllowed lo usa para
-  // distinguir "el sitio no cargó" de "el validador lo cortó".
+  // Rejections since start: gotoAllowed uses it to tell "the site didn't load" from "the guard cut it".
   blockedCount: () => number;
   close: () => Promise<void>;
 }
 
-// "host:puerto" de un CONNECT, IPv6 entre corchetes incluida.
+// "host:port" of a CONNECT, bracketed IPv6 included.
 function parseAuthority(authority: string): { host: string; port: number } | null {
   const colon = authority.lastIndexOf(":");
   if (colon <= 0) return null;
@@ -167,7 +143,7 @@ export async function startEgressProxy(policy: GuardPolicy = DEFAULT_POLICY): Pr
   const server = http.createServer();
   server.on("connection", track);
 
-  // HTTPS (y WebSockets): túnel CONNECT hacia la IP ya validada.
+  // HTTPS (and WebSockets): a CONNECT tunnel to the already-validated IP.
   server.on("connect", async (req: http.IncomingMessage, client: net.Socket, head: Buffer) => {
     const target = parseAuthority(req.url ?? "");
     let ip: string;
@@ -196,8 +172,8 @@ export async function startEgressProxy(policy: GuardPolicy = DEFAULT_POLICY): Pr
     client.on("close", () => upstream.destroy());
   });
 
-  // HTTP plano: el navegador manda la URL absoluta y el proxy reenvía la
-  // petición a la IP ya validada, con el Host original.
+  // Plain HTTP: the browser sends the absolute URL and the proxy forwards it to the validated IP,
+  // keeping the original Host.
   server.on("request", async (req: http.IncomingMessage, res: http.ServerResponse) => {
     let url: URL;
     let ip: string;
@@ -228,7 +204,7 @@ export async function startEgressProxy(policy: GuardPolicy = DEFAULT_POLICY): Pr
     req.pipe(upstream);
   });
 
-  // Upgrade sin CONNECT: Chromium no lo usa con un proxy; no se reenvía.
+  // Upgrade without CONNECT: Chromium doesn't use it behind a proxy, so it isn't forwarded.
   server.on("upgrade", (_req: http.IncomingMessage, socket: net.Socket) => socket.destroy());
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -245,15 +221,11 @@ export async function startEgressProxy(policy: GuardPolicy = DEFAULT_POLICY): Pr
   };
 }
 
-// ============================================================
-// Navegador
-// ============================================================
+// ---- Browser ----
 const proxies = new WeakMap<Browser, EgressProxy>();
 
-// Chromium con todo su tráfico por el proxy de salida. Sin `bypass`,
-// Playwright añade <-loopback> a la lista de excepciones de Chromium, así
-// que localhost y 127.0.0.1 también pasan por el proxy en vez de salir
-// directo. WebRTC queda limitado a lo que va por el proxy (sin UDP propio).
+// Without `bypass`, Playwright adds <-loopback> to Chromium's bypass list, so localhost and 127.0.0.1
+// also go through the proxy. WebRTC is limited to proxied traffic (no UDP of its own).
 export async function launchGuardedChromium(
   executablePath: string,
   policy: GuardPolicy = DEFAULT_POLICY,
@@ -276,9 +248,8 @@ export async function launchGuardedChromium(
   }
 }
 
-// La única forma de abrir una URL en el navegador del análisis. Valida la
-// URL, exige que el navegador salga por el proxy (si no, falla cerrado) y
-// convierte un corte del proxy en el mismo mensaje genérico.
+// The only way to open a URL in the analysis browser: fails closed if the browser isn't behind the
+// proxy, and turns a proxy cut into the same generic message.
 export async function gotoAllowed(
   page: Page,
   url: string,

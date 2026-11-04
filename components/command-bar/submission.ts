@@ -1,8 +1,7 @@
 import type { AnalysisRequest } from "@/lib/worldmodel/analysis-events";
 import type { PersonaMode } from "@/lib/worldmodel/goal-types";
 
-// Lo que la barra envía. `request` es lo que la API recibe hoy; el resto es
-// lo que la UI tiene y la API no (se guarda para mostrarlo o avisarlo).
+// `request` is what the API receives; the rest is UI-only, kept to display or warn.
 export type BarSubmission = {
   request: AnalysisRequest;
   goalLabel: string;
@@ -10,8 +9,7 @@ export type BarSubmission = {
   profiles: string[];
 };
 
-// Acepta "linear.app" o "https://linear.app". Sin esquema, se asume https.
-// Válida si es http(s) y el host tiene un punto (o es localhost).
+// Without a scheme, https is assumed. Valid if http(s) and the host has a dot (or is localhost).
 export function normalizeUrl(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -26,14 +24,13 @@ export function normalizeUrl(value: string): string | null {
   }
 }
 
-// FormData de la barra → envío. Cada control deja su valor en un input
-// del formulario: url, goal, mode, profile (uno por perfil) y model.
+// Each control leaves its value in a form input: url, goal, mode, profile (one per profile), model.
 export function readSubmission(form: HTMLFormElement): BarSubmission | null {
   const data = new FormData(form);
   const url = normalizeUrl(String(data.get("url") ?? ""));
   if (!url) return null;
 
-  // Objetivo: el texto del campo, siempre (un chip solo lo rellena).
+  // Always the field's text: a chip only fills it in.
   const goal = String(data.get("goal") ?? "").trim();
   if (!goal) return null;
   const personaMode = (data.get("mode") === "personal" ? "personal" : "automatic") as PersonaMode;
@@ -44,8 +41,7 @@ export function readSubmission(form: HTMLFormElement): BarSubmission | null {
       url,
       goal,
       personaMode,
-      // La API recibe una sola persona: se envía el primer perfil. Los
-      // demás no tienen equivalente en el motor todavía.
+      // The API takes a single persona: the other profiles have no engine equivalent yet.
       customPersona: personaMode === "personal" ? profiles[0] : undefined,
     },
     goalLabel: goal,

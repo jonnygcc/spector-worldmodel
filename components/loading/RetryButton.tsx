@@ -2,14 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-// Botón de reintentar que solo se ofrece cuando reintentar sirve (paso 9):
-// - `retryable` false (p. ej. la cuota diaria agotada): no se dibuja; el
-//   mensaje ya dice qué hacer.
-// - `retryAfterSeconds`: deshabilitado con la cuenta atrás ("Retry in
-//   37s"), y se habilita al llegar a cero. Reintentar antes contra una
-//   cuota agotada siempre falla.
-// Quien lo usa le pasa una `key` nueva en cada error para reiniciar la
-// cuenta.
+// Hidden when retrying can't help (e.g. daily quota); with retryAfterSeconds it counts down first.
+// Callers pass a new `key` per error to restart the countdown.
 export default function RetryButton({
   label,
   onRetry,

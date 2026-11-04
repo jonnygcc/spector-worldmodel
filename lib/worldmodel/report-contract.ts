@@ -1,34 +1,30 @@
-// Contrato de datos del reporte: lo que un motor tiene que rellenar para
-// que una sección se dibuje. Vive en lib/ para que el motor del World
-// Model lo produzca sin depender de la UI; components/report/contract.ts
-// lo reexporta junto al adaptador a la tabla.
+// What an engine must fill in for a report section to render. Lives in lib/ so the World Model engine
+// can produce it without depending on the UI; components/report/contract.ts re-exports it.
 
 export interface StepNode {
   index: number;
   label: string;
-  screenshot?: string; // solo en Agent
+  screenshot?: string; // Agent only
 }
 
 export type RouteStatus = "recommended" | "executed" | "blocked" | "success" | "friction";
 
 export interface RouteRow {
-  user: string; // agent: ruta/persona | world model: nombre del escenario
-  subtitle?: string; // world model: tipo ("Alternative route", etc.)
+  user: string; // agent: route/persona | world model: scenario name
+  subtitle?: string; // world model: kind ("Alternative route", etc.)
   time: string;
   probability: number; // 0–100
   steps: number;
   friction: number; // 0–100
   status: RouteStatus;
-  estimated?: boolean; // world model: "~" en time/steps
-  // Cuántos pasos se alcanzaron (en orden de index). Los de antes van en
-  // azul en el timeline; desde ahí, neutral-200. Sin él, todos alcanzados
-  // salvo en BLOCKED, donde se corta en el primer paso que falló.
+  estimated?: boolean; // world model: "~" on time/steps
+  // Reached steps in index order: blue in the timeline up to here, then neutral-200. Without it all
+  // are reached, except in BLOCKED, which stops at the first failed step.
   reachedSteps?: number;
   stepNodes: StepNode[];
 }
 
-// Escenario del World Model: predicción, sin Time ni capturas (en la
-// tabla va siempre como estimated).
+// A prediction: no Time and no screenshots (always rendered as estimated).
 export type WMKind = "Alternative route" | "User error" | "UI confusion" | "Flow block";
 
 export interface WMScenario {
@@ -38,11 +34,11 @@ export interface WMScenario {
   steps: number;
   friction: number; // 0-100
   status: "success" | "friction" | "blocked";
-  // Pasos alcanzados: = steps en success/friction; < steps en blocked.
+  // = steps for success/friction; < steps for blocked.
   reachedSteps: number;
-  // Una frase para el diseñador, nombrando el elemento concreto.
+  // One sentence for the designer, naming the concrete element.
   recommendation: string;
-  stepNodes: StepNode[]; // sin screenshot
+  stepNodes: StepNode[]; // no screenshot
 }
 
 export interface ReportSection {

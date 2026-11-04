@@ -6,24 +6,8 @@ import ModifierRow from "./ModifierRow";
 import SubmitButton from "./SubmitButton";
 import { normalizeUrl, readSubmission, type BarSubmission } from "./submission";
 
-// Barra de comando de la Home (frame Desktop/Home de Paper).
-// Arriba, los modificadores; debajo, dos campos apilados con un divisor
-// entre ellos (la URL y el objetivo, con el mismo estilo y padding), y
-// los atajos de objetivo con la acción. Cada control deja su valor en un
-// input del formulario; al enviar se leen todos juntos (submission.ts).
-//
-// El objetivo es texto libre y es lo que se envía al motor. Los chips
-// solo lo rellenan: pulsar uno escribe su texto en el campo, y está
-// seleccionado mientras el campo diga exactamente eso.
-//
-// El botón se deshabilita sin URL válida, sin objetivo escrito, en
-// Personal sin perfiles, y mientras corre el envío (con spinner).
-//
-// Foco: el indicador no está en el campo sino en la barra entera. Al enfocar
-// el campo, borde accent y halo shadow-focus sumado a shadow-bar en la misma
-// declaración. Si el campo es inválido, borde danger y shadow-focus-danger.
-// Los selectores son excluyentes para no depender del orden de las reglas.
-// Los dos campos comparten estilo: mismo texto, mismo color y placeholder.
+// The goal is free text and is what the engine receives; chips only fill it in. Focus styles
+// live on the whole bar, with mutually exclusive selectors so rule order doesn't matter.
 const FIELD =
   "min-w-0 flex-1 bg-transparent outline-none font-body text-body font-regular leading-rg text-neutral-800 placeholder:text-neutral-400";
 
@@ -34,7 +18,7 @@ export default function CommandBar({
 }: {
   onSubmit: (submission: BarSubmission) => void;
   pending?: boolean;
-  // Cada vez que cambia, el campo de URL recibe el foco ("Edit URL").
+  // Each change focuses the URL field ("Edit URL").
   focusSignal?: number;
 }) {
   const [url, setUrl] = useState("");
@@ -72,10 +56,7 @@ export default function CommandBar({
 
       <div className="border-t border-neutral-300" />
 
-      {/* Móvil: el botón va a la derecha del campo de URL. Desde lg, a la
-          derecha de los chips. Se pinta en los dos sitios y cada uno se
-          oculta en el breakpoint que no le toca, para que el orden de
-          tabulación siga al visual. */}
+      {/* Rendered in both spots and hidden per breakpoint so tab order follows the visual order. */}
       <div className="flex items-center gap-8 pl-16 pr-12">
         <input
           ref={inputRef}

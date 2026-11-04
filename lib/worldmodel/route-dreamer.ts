@@ -20,10 +20,8 @@ interface DreamedRoute {
   reachesGoal: boolean;
 }
 
-// La página como datos para el modelo (page_data). Primero los elementos
-// del contenido (los productos de un listado, el botón de compra) y luego
-// los de la cabecera y el pie, que en una página interior suelen ser los
-// mismos de siempre.
+// Content elements first (a listing's products, the buy button), then header and footer, which on
+// inner pages are the same everywhere.
 function pageDataOf(state: PageState) {
   const content = state.interactiveElements.filter((el) => el.region !== "chrome").slice(0, 60);
   const chrome = state.interactiveElements.filter((el) => el.region === "chrome").slice(0, 25);
@@ -35,7 +33,7 @@ function pageDataOf(state: PageState) {
   };
 }
 
-// Instrucciones con valores de confianza: objetivo, criterio y perfil.
+// Instructions take trusted values only: goal, criteria and profile.
 const trustedValues = (goal: Goal, persona: Persona) => ({
   GOAL_DESCRIPTION: goal.description,
   SUCCESS_CRITERIA: goal.successCriteria,
@@ -50,9 +48,8 @@ async function dreamSingleRoute(
 ): Promise<DreamedRoute | null> {
   const response = await askGemini({
     system: fill(PROMPTS.dreamRoute, trustedValues(goal, persona)),
-    // El primer estado real, con los elementos del contenido primero (como
-    // al re-soñar): con los 25 primeros del DOM, casi todos de la cabecera,
-    // el plan salía genérico y divergía en el primer paso.
+    // Content first, as when re-planning: with the DOM's first 25 elements, mostly header, the plan came out
+    // generic and diverged on step 1.
     pageData: {
       ...pageDataOf(state),
       entry: { label: entry.entryPoint, type: entry.entryType, action: entry.entryDescription },
@@ -64,18 +61,16 @@ async function dreamSingleRoute(
   try {
     const parsed = JSON.parse(cleaned) as Omit<DreamedRoute, "steps"> & { steps?: unknown };
 
-    // Pasos validados (step-guard): los de tipo, tecla o elemento
-    // inválidos se descartan.
+    // Steps with an invalid type, key or element are dropped (step-guard).
     const steps = sanitizeSteps(parsed.steps, MAX_STEPS_PER_ROUTE);
 
-    // Forzamos que el paso 1 use el punto de entrada real
+    // Step 1 must use the real entry point.
     if (steps.length > 0) {
       steps[0] = { ...steps[0], targetElement: entry.entryPoint, targetType: entry.entryType };
     }
 
-    // El propio sueño dice que la ruta no llega: se descarta, como en el
-    // finder. Solo cuando la respuesta se pudo leer; un fallo del modelo
-    // no es motivo para tirar la ruta.
+    // The dream itself says the route doesn't arrive: dropped, like in the finder. Only when the answer
+    // could be read; a model failure is no reason to drop the route.
     if (parsed.reachesGoal === false) {
       console.log(`[Routes] Discarded "${entry.entryPoint}": the dream predicts it does not reach the goal`);
       return null;
@@ -140,19 +135,14 @@ export async function dreamAllRoutes(
   return routes;
 }
 
-// ============================================================
-// Re-sueño: los pasos restantes desde la página real
-// ============================================================
+// ---- Re-plan: the remaining steps from the real page ----
 export interface Redream {
   goalAlreadyMet: boolean;
   steps: RouteStep[];
 }
 
-// Llama al dreamer con el estado real recién capturado, el objetivo, el
-// perfil y los pasos ya ejecutados, y pide solo los pasos que faltan desde
-// ahí. Sin pasos y sin objetivo cumplido = no hay camino desde aquí. Los
-// pasos hechos y el motivo llevan texto del sitio (títulos, etiquetas):
-// van en page_data, no en las instrucciones.
+// No steps and goal not met means no path from here. Steps done and the reason carry site text
+// (titles, labels), so they go in page_data, not in the instructions.
 export async function redreamFromState(
   state: PageState,
   goal: Goal,
@@ -180,7 +170,7 @@ export async function redreamFromState(
       steps: sanitizeSteps(parsed.steps, MAX_REDREAM_STEPS),
     };
   } catch (error) {
-    // Cuota, plazo o desconexión no son "no hay camino": suben.
+    // Quota, deadline or disconnect aren't "no path": they propagate.
     if (mustPropagate(error)) throw error;
     console.error("[Routes] Re-dream failed:", error);
     return { goalAlreadyMet: false, steps: [] };

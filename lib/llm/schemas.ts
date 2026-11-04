@@ -1,10 +1,8 @@
 import { Type, type Schema } from "@google/genai";
 import { ALLOWED_KEYS, STEP_TYPES, TARGET_TYPES } from "../worldmodel/step-guard";
 
-// Forma de cada respuesta del modelo, como responseSchema de Gemini. El
-// JSON es válido por contrato y los enums acotan lo que una inyección
-// puede hacer con la salida. El código vuelve a validar igual
-// (step-guard.ts): el schema reduce, no reemplaza.
+// Enums bound what an injection can do with the output. Code still re-validates (step-guard.ts):
+// the schema narrows, it doesn't replace.
 
 const STEP: Schema = {
   type: Type.OBJECT,

@@ -1,5 +1,4 @@
-// Tests del navegador frente a una página hostil (paso 8): `npm test`.
-// Node carga los .ts directamente (type stripping).
+// Browser-vs-hostile-page tests (`npm test`). Node loads the .ts files directly (type stripping).
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -22,9 +21,7 @@ import {
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
-// ============================================================
-// Ruta de Chromium
-// ============================================================
+// ---- Chromium path ----
 describe("ruta de Chromium", () => {
   test("sin variable, la de playwright-core", () => {
     const saved = process.env.SPECTOR_CHROMIUM_PATH;
@@ -62,12 +59,10 @@ describe("ruta de Chromium", () => {
   });
 });
 
-// ============================================================
-// Navegador real
-// ============================================================
+// ---- Real browser ----
 const CHROMIUM = resolveChromiumPath();
 
-// Procesos de Chromium cuyo comando lleva la marca del test.
+// Chromium processes whose command line carries the test's marker.
 function chromiumProcessesWith(marker) {
   const out =
     process.platform === "win32"
@@ -115,8 +110,8 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     port = server.address().port;
-    // 127.0.0.1 literal: origen "potencialmente confiable" (contexto seguro),
-    // necesario para probar los permisos. La política solo permite este puerto.
+    // A literal 127.0.0.1 is a potentially trustworthy origin (secure context), needed to test permissions.
+    // The policy only allows this port.
     policy = {
       ports: new Set([80, 443, port]),
       lookup: async () => {
@@ -228,9 +223,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
   });
 });
 
-// ============================================================
-// Cierre garantizado
-// ============================================================
+// ---- Guaranteed cleanup ----
 describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
   let server, port, policy;
 
@@ -254,8 +247,7 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
 
   after(() => server?.close());
 
-  // Un navegador vigilado y registrado en la sesión, con una marca propia
-  // para encontrar su proceso en el sistema.
+  // A guarded browser registered in the session, with its own marker to find its process.
   const launch = async (marker) =>
     trackBrowser(await launchGuardedChromium(CHROMIUM, policy, [...SANDBOX_ARGS, marker]));
 
@@ -269,7 +261,7 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
       seen = chromiumProcessesWith(marker);
       const page = await newSandboxedPage(browser);
       await gotoAllowed(page, `http://127.0.0.1:${port}/ok`, {}, policy);
-      // Sin cerrar el navegador a propósito: lo cierra la sesión.
+      // Deliberately not closed: the session closes it.
     }, 30000);
     assert.ok(seen >= 1, "el test debe ver el proceso mientras corre");
     assert.ok(await noProcessLeft(marker), "quedó un Chromium abierto");
@@ -296,7 +288,7 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
         const page = await newSandboxedPage(browser);
         await gotoAllowed(page, `http://127.0.0.1:${port}/freeze`, {}, policy);
         await new Promise((r) => setTimeout(r, 200));
-        // page.evaluate sin tope: se quedaría esperando para siempre.
+        // page.evaluate without a cap would wait forever.
         await page.evaluate("1 + 1");
       }, 3000),
       (error) => error instanceof AnalysisTimeoutError
@@ -314,7 +306,7 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
       }, 500),
       AnalysisTimeoutError
     );
-    // La tarea siguió en segundo plano: simula una etapa que arranca tarde.
+    // The task kept running in the background: simulates a stage that starts late.
     await assert.rejects(
       withAnalysisDeadline(async () => {
         await new Promise((r) => setTimeout(r, 700));

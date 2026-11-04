@@ -8,15 +8,7 @@ const MODE = {
   "world-model": { Icon: GlobeCheck, name: "World Model", subtitle: "Predicted detours, same goal" },
 };
 
-// Sección del reporte (frame Desktop/Reporte/World Model): eyebrow con el
-// ícono y el nombre del modo, su subtítulo debajo y la meta a la derecha;
-// luego la tabla y, si hay, una nota al pie.
-//
-// - Agent: robot, la ruta medida en el navegador.
-// - World Model: mundo, escenarios predichos hacia el mismo objetivo.
-//
-// Separaciones: spacing-16 entre eyebrow, tabla y nota. En móvil la meta
-// baja bajo el nombre (no hay frame Phone de esta pantalla).
+// On mobile the meta drops below the name (there's no Phone frame for this screen).
 export default function ReportSection({
   mode,
   meta,
@@ -44,8 +36,7 @@ export default function ReportSection({
 
       {children}
 
-      {/* La nota va discreta, en una línea gris. El frame la dibuja en una
-          caja warning-10; se dejó así a pedido (ver PENDING-SYNC). */}
+      {/* The frame draws the note in a warning-10 box; kept as a plain gray line on request (see PENDING-SYNC). */}
       {note && <p className="font-body text-small leading-lg text-neutral-600">{note}</p>}
     </section>
   );

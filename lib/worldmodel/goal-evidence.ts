@@ -1,20 +1,12 @@
 import type { Route } from "./goal-types";
 
-// Evidencia de que una ruta llegó al objetivo, comprobada con código.
-//
-// Las señales se piden al modelo ANTES de visitar el sitio y solo a partir
-// del objetivo (PROMPTS.goalSignals): la página no puede influir en ellas.
-// Al terminar una ruta, el código las busca en la página final. Si el
-// modelo dice que llegó pero ninguna señal aparece, la ruta queda sin
-// verificar (UNVERIFIED) y no puede ser la recomendada.
-//
-// Módulo sin dependencias de runtime (solo tipos): los tests lo cargan con
-// `node --test`.
+// Signals come from the goal alone, before the visit; code looks for them on the final page, and a
+// route the model calls arrived without any is UNVERIFIED. No runtime deps, for `node --test`.
 
 export interface GoalSignals {
-  // Textos visibles que aparecen cuando el objetivo se cumplió.
+  // Visible texts that appear once the goal is met.
   text: string[];
-  // Fragmentos de ruta de la URL donde suele cumplirse ("/pricing").
+  // URL path fragments where it's usually met ("/pricing").
   url: string[];
 }
 
@@ -27,8 +19,7 @@ const MAX_SIGNAL = 40;
 const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 const occurrences = (text: string, needle: string) => (needle ? text.split(needle).length - 1 : 0);
 
-// La respuesta del modelo en forma válida: strings cortos, sin vacíos ni
-// repetidos.
+// Short, non-empty, unique strings.
 export function normalizeSignals(raw: unknown): GoalSignals {
   const list = (value: unknown, max: number) =>
     Array.isArray(value)
@@ -50,9 +41,8 @@ export interface GoalEvidence {
   found: string[];
 }
 
-// La página final cumple el objetivo si su URL tiene una de las pistas, o
-// si una señal de texto aparece más veces que en la página de inicio ("Pricing" está en la
-// cabecera de todas las páginas y no prueba nada por estar).
+// A text signal only counts if it appears more often than on the start page: "Pricing" sits in
+// every header and proves nothing.
 export function checkGoalEvidence(
   signals: GoalSignals,
   initialText: string,
@@ -66,7 +56,7 @@ export function checkGoalEvidence(
     const url = new URL(finalUrl);
     path = `${url.pathname}${url.search}`.toLowerCase();
   } catch {
-    // Sin URL legible solo cuentan las señales de texto.
+    // Without a readable URL only text signals count.
   }
   const found = [
     ...signals.url.filter((hint) => path.includes(hint)),
@@ -75,8 +65,7 @@ export function checkGoalEvidence(
   return { verified: found.length > 0, found };
 }
 
-// La recomendada solo puede ser una ruta ejecutada, que llegó y cuya
-// llegada se comprobó. Lo que proponga el comparador se ignora si no lo es.
+// Whatever the comparator proposes is ignored unless the route ran, arrived and was verified.
 export function pickBestRouteId(
   routes: Pick<Route, "id" | "verified" | "outcome" | "goalVerified">[],
   proposedId: string | null | undefined

@@ -1,13 +1,11 @@
 export type Profile = { id: number; description: string };
 
-// Máximo de perfiles por análisis, y cuántos avatares se ven antes de
-// agruparse en "+N": dos en la barra, tres en el modal (como en Paper).
+// Avatars shown before grouping into "+N": two in the bar, three in the modal (as in Paper).
 export const MAX_PROFILES = 6;
 export const VISIBLE_IN_BAR = 2;
 export const VISIBLE_IN_MODAL = 3;
 
-// Los avatares que se ven: los `count` primeros, salvo que el que se está
-// editando quede fuera; entonces ocupa el último hueco.
+// If the profile being edited would be hidden, it takes the last slot.
 export function visibleProfiles(profiles: Profile[], count: number, editingId?: number | null) {
   const visible = profiles.slice(0, count);
   const editing = profiles.find((p) => p.id === editingId);
@@ -17,8 +15,7 @@ export function visibleProfiles(profiles: Profile[], count: number, editingId?: 
   return visible;
 }
 
-// "+N" dentro del modal: pasa al siguiente perfil oculto, en orden y
-// volviendo al principio.
+// "+N" in the modal jumps to the next hidden profile, wrapping around.
 export function nextHiddenProfile(profiles: Profile[], count: number, editingId: number | null) {
   const visible = visibleProfiles(profiles, count, editingId);
   const start = profiles.findIndex((p) => p.id === editingId);

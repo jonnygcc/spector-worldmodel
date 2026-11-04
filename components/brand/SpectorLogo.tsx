@@ -1,7 +1,6 @@
 import { useId } from "react";
 
-// Marca de Spector, copiada del frame Desktop/Home de Paper.
-// El SVG conserva su tamaño propio (32×23); no es una medida de layout.
+// Copied from Paper's Desktop/Home frame; 32×23 is the SVG's own size, not a layout measure.
 export default function SpectorLogo({ className }: { className?: string }) {
   const maskId = useId();
 

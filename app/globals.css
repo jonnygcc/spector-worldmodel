@@ -1,20 +1,7 @@
 @import "tailwindcss";
 
-/*
- * Tokens del documento de Paper "Spector | World Model".
- * Un token por variable, con el mismo nombre y valor que en Paper.
- * No editar aquí sin cambiarlo antes en Paper.
- *
- * Dos excepciones, ambas deliberadas:
- * - leading-*: Paper solo acepta porcentajes (115%, 125%, 150%); aquí se
- *   escriben como números sin unidad para que cada elemento recalcule el
- *   interlineado según su propio tamaño en vez de heredar píxeles fijos.
- * - font-*: Paper dice "Space Grotesk"; aquí apuntan a la variable que crea
- *   next/font en app/layout.tsx, que es la fuente self-hosted.
- *
- * La escala de spacing sobrescribe la de Tailwind: p-24 = 24px, no 96px.
- * Ver README.md → "Tokens de diseño".
- */
+/* Paper tokens, same names and values: change them in Paper first. Spacing overrides Tailwind's (p-24 = 24px),
+   leading-* is unitless so each element scales its own line height, font-* uses next/font's variable. */
 
 @theme {
   /* color */
@@ -83,51 +70,32 @@
   --tracking-tight: -0.02em;
   --tracking-wide: 0.06em;
 
-  /* container — genera max-w-narrow y max-w-content */
+  /* container — generates max-w-narrow and max-w-content */
   --container-narrow: 640px;
   --container-content: 1080px;
 
-  /*
-   * PENDIENTE DE SINCRONIZAR A PAPER.
-   * Estos tokens se definieron en código y todavía no existen como
-   * variables en el documento de Paper. Crearlos allí con el mismo nombre
-   * y valor, y vincular los elementos que hoy los tienen sueltos.
-   * (Paper no tiene tipo de variable para sombras: las --shadow-* se quedan
-   * aquí aunque el resto se sincronice.)
-   */
-  --container-command: 678px;          /* ancho de la barra de comando */
-  --shadow-bar: 1px 1px 4px #EFF6FFCC;  /* sombra de la barra de comando */
-  --shadow-focus: 0 0 8px 0 #2563EB33;  /* halo de la barra con el campo enfocado */
-  --shadow-focus-danger: 0 0 8px 0 #C42B2B33; /* mismo halo, campo inválido */
-  --shadow-control: 0 1px 4px 0 #04050540; /* flechas sobre capturas: neutral-800 al 25%; genera shadow-control */
-  --container-menu: 147px;             /* ancho del menú de modelos; genera w-menu */
-  --container-message: 295px;          /* bloque de texto de la card de error; genera w-message */
-  --container-tooltip: 240px;          /* ancho máximo de la burbuja del tooltip; genera max-w-tooltip */
+  /* PENDING SYNC TO PAPER: create these there with the same name and value. Paper has no shadow
+     variable type, so --shadow-* stay code-only. */
+  --container-command: 678px;          /* command bar width */
+  --shadow-bar: 1px 1px 4px #EFF6FFCC;  /* command bar shadow */
+  --shadow-focus: 0 0 8px 0 #2563EB33;  /* bar glow while a field is focused */
+  --shadow-focus-danger: 0 0 8px 0 #C42B2B33; /* same glow, invalid field */
+  --shadow-control: 0 1px 4px 0 #04050540; /* arrows over screenshots: neutral-800 at 25%; generates shadow-control */
+  --container-menu: 147px;             /* model menu width; generates w-menu */
+  --container-message: 295px;          /* error card text block; generates w-message */
+  --container-tooltip: 240px;          /* max tooltip bubble width; generates max-w-tooltip */
 
-  /* Alto de los controles de la fila de modificadores (mode switch, Add
-     profile, avatares, contador, model picker). Es el alto que ya tienen
-     las pastillas de texto: una línea de text-small en leading-sm, más
-     spacing-4 arriba y abajo, más 1px de borde a cada lado = 26.1px.
-     Genera size-control / h-control. */
+  /* The height text pills already have (text-small × leading-sm + spacing-4 × 2 + 2px border = 26.1px),
+     shared by every modifier-row control. Generates size-control / h-control. */
   --spacing-control: calc(var(--text-small) * var(--leading-sm) + var(--spacing-4) * 2 + 2px);
 
-  /* Alto de cada hueco de la lista de etapas del Loading: una línea de
-     text-body en leading-rg = 20px. Los cinco huecos lo tienen siempre,
-     con o sin etapa. Genera h-stage. */
+  /* One line of text-body in leading-rg (20px); every Loading stage slot keeps it, empty or not.
+     Generates h-stage. */
   --spacing-stage: calc(var(--text-body) * var(--leading-rg));
 }
 
-/*
- * Foco de teclado — un único indicador para todos los controles.
- * Anillo de 2px en accent, separado 2px del elemento. Solo con
- * :focus-visible, para que no aparezca al hacer click con el mouse.
- * Va en @layer base: cualquier utilidad lo puede sobrescribir.
- *
- * Los campos de texto (input y textarea) quedan fuera: no llevan anillo
- * externo, y cada uno marca el foco con su propio borde en accent
- * (focus:border-accent). El campo de URL no tiene borde propio: su foco lo
- * dibuja la barra de comando entera.
- */
+/* One focus indicator for every control, :focus-visible only so mouse clicks don't show it; in @layer base
+   so utilities can override it. Text fields use their own accent border (the URL field, the whole bar's). */
 @layer base {
   :focus-visible:not(input, textarea) {
     outline: 2px solid var(--color-accent);
@@ -139,16 +107,5 @@
   }
 }
 
-/*
- * Regla del sistema — cifras tabulares.
- * Toda cifra que se lee en columna o se compara con otra (tiempo,
- * probabilidad, pasos, fricción, conteos, horas) usa `tabular-nums`,
- * para que los dígitos tengan el mismo ancho y las columnas queden
- * alineadas. Aplica a la data-table del reporte, a las métricas del
- * verdict y de las route-cards, a las duraciones del Loading y a la
- * fecha y las rutas de Past analyses.
- *
- * Tailwind v4 ya trae la utilidad `tabular-nums`
- * (font-variant-numeric: tabular-nums). No se redefine aquí: hacerlo
- * rompería su composición con `slashed-zero` y `lining-nums`.
- */
+/* System rule: every figure read in a column or compared (time, probability, steps, friction, counts) uses
+   Tailwind's `tabular-nums`. Not redefined here: that would break its composition with slashed-zero and lining-nums. */

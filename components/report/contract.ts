@@ -1,8 +1,8 @@
 import type { WMScenario } from "@/lib/worldmodel/report-contract";
 import type { Friction, Route } from "./sample";
 
-// El contrato (RouteRow, StepNode…) vive en lib/worldmodel/report-contract.ts,
-// porque lo produce el motor; aquí se reexporta con el adaptador a la tabla.
+// The contract lives in lib/worldmodel/report-contract.ts because the engine produces it;
+// re-exported here with the table adapter.
 export type {
   ReportSection,
   RouteRow,
@@ -12,16 +12,14 @@ export type {
   WMScenario,
 } from "@/lib/worldmodel/report-contract";
 
-// Bandas de fricción del contrato: < 35 verde, 35–60 azul, > 60 rojo.
+// Contract friction bands: < 35 green, 35–60 blue, > 60 red.
 function frictionLevel(value: number): Friction {
   if (value < 35) return "low";
   if (value <= 60) return "medium";
   return "high";
 }
 
-// Escenario del World Model → fila de la tabla compartida (ReportTable).
-// Siempre estimado; sin Time (la tabla del World Model no tiene esa
-// columna) y sin capturas.
+// Always estimated, with no Time column and no screenshots in the World Model table.
 export function toTableRoute(scenario: WMScenario): Route {
   return {
     user: scenario.user,

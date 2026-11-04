@@ -12,9 +12,8 @@ import { GOAL_SIGNALS_SCHEMA } from "../llm/schemas";
 import { checkDeadline, withAnalysisDeadline, ANALYSIS_TIMEOUT_MS } from "../security/browser-sandbox";
 import { mustPropagate } from "../llm/model-errors";
 
-// Señales de que el objetivo se cumplió, pedidas solo a partir del
-// objetivo: sin datos del sitio. Si la llamada falla no hay señales, y
-// ninguna ruta podrá salir como verificada (queda UNVERIFIED).
+// Derived from the goal only, never from site data. If the call fails there are no signals, and no
+// route can come out verified (UNVERIFIED).
 async function deriveGoalSignals(goal: Goal): Promise<GoalSignals> {
   try {
     const response = await askGemini({
@@ -26,32 +25,18 @@ async function deriveGoalSignals(goal: Goal): Promise<GoalSignals> {
     });
     return normalizeSignals(JSON.parse(cleanJsonResponse(response)));
   } catch (error) {
-    // Sin cuota no tiene sentido seguir: el análisis haría otra docena de
-    // llamadas que también fallarían.
+    // Without quota there's no point going on: the analysis would make a dozen more failing calls.
     if (mustPropagate(error)) throw error;
     console.error("[Spector] Goal signals failed:", error);
     return NO_SIGNALS;
   }
 }
 
-// Etapas del motor, en el orden en que corren. Los ids son los del
-// StageList de la UI (components/loading/StageList.tsx).
+// Engine stages in run order; the ids match the UI's StageList.
 export type AnalysisStage = "load" | "profiles" | "find" | "simulate" | "browser" | "compare";
 
-// `goalInput`: un objetivo de la lista (GoalId, lo que envía /api/goal)
-// o uno ya construido, como el que escribe el usuario (goalFromText).
-// El World Model no corre aquí: lo pide la UI aparte (/api/world-model)
-// cuando el reporte del agente ya está en pantalla, para que una llamada
-// lenta o limitada no deje el análisis colgado en "Comparing routes…".
-//
-// Todo el análisis corre con un plazo total (ANALYSIS_TIMEOUT_MS): al
-// vencer se cierran sus navegadores y falla con AnalysisTimeoutError. Al
-// terminar, bien o mal, ningún navegador suyo queda abierto
-// (lib/security/browser-sandbox.ts).
-//
-// `signal`: el de la petición. Si el cliente se desconecta (cerró la
-// pestaña), el análisis se aborta: se cierran sus navegadores y se cortan
-// sus llamadas al modelo, con AnalysisCancelledError.
+// The World Model isn't run here: the UI requests it once the report is on screen, so a slow call
+// can't hang the analysis. A total deadline and the request's signal bound everything (browser-sandbox.ts).
 export function runGoalAnalysis(
   url: string,
   goalInput: GoalId | Goal,
@@ -63,7 +48,7 @@ export function runGoalAnalysis(
   return withAnalysisDeadline(
     () =>
       analyze(url, goalInput, personaMode, customPersona, (stage) => {
-        // Entre etapas: si el plazo venció o el cliente se fue, no se sigue.
+        // Between stages: stop if the deadline passed or the client left.
         checkDeadline();
         onStage?.(stage);
       }),
@@ -83,11 +68,10 @@ async function analyze(
 
   console.log(`[Spector] Goal: ${goal.label}`);
 
-  // Se carga el sitio antes de resolver la persona (antes iba al revés):
-  // no dependen entre sí, y así el orden coincide con el de la UI y un
-  // sitio que no carga falla en la primera etapa.
+  // Load the site before resolving the persona: they're independent, it matches the UI order, and a site
+  // that won't load fails in the first stage.
   onStage("load");
-  // Antes de visitar el sitio: la página no puede influir en las señales.
+  // Before visiting the site, so the page can't influence the signals.
   const goalSignals = await deriveGoalSignals(goal);
   console.log(`[Spector] Goal signals: text [${goalSignals.text.join(", ")}], url [${goalSignals.url.join(", ")}]`);
   console.log("[Spector] Capturing initial state...");
@@ -105,10 +89,8 @@ async function analyze(
   const { routes: entries, offGoal } = await findRoutes(state, goal, persona);
   console.log(`[Spector] Found ${entries.length} routes.`);
 
-  // Sin rutas que terminen cumpliendo el criterio de éxito (las descarta
-  // el finder, o el dreamer al soñarlas): no hay camino al objetivo. No se
-  // ejecuta nada ajeno al objetivo para llenar el reporte: si el finder
-  // solo propuso rutas que no servían al objetivo, el veredicto lo dice.
+  // Nothing unrelated to the goal runs just to fill the report; if the finder only proposed
+  // off-goal routes, the verdict says so.
   const offGoalNote =
     offGoal.length > 0
       ? ` The only candidates were unrelated to "${goal.label}" (${offGoal.map((n) => `"${n}"`).join(", ")}), so they were not run.`

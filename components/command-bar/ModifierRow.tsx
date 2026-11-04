@@ -8,17 +8,12 @@ import { MAX_PROFILES, VISIBLE_IN_BAR, type Profile } from "@/components/profile
 import ModelPicker from "./ModelPicker";
 import ModeSwitch, { type Mode } from "./ModeSwitch";
 
-// Fila superior de la barra: modo, perfiles y modelo. En Personal aparecen
-// "+ Add profile" y los avatares a la derecha del switch; en Automatic no.
-//
-// Los perfiles son estado local, sin persistencia. El modal trabaja sobre
-// una copia (draft): "Save" la aplica quitando los perfiles vacíos;
-// cerrar con la X, Escape o click fuera la descarta.
+// Profiles are local state, not persisted. The modal edits a draft: Save applies it
+// (dropping empty profiles), closing discards it.
 export default function ModifierRow({
   onPersonaChange,
 }: {
-  // Avisa a la barra si el modo y los perfiles permiten enviar: en
-  // Personal hace falta al menos un perfil escrito.
+  // Personal mode needs at least one written profile before the bar can submit.
   onPersonaChange?: (ready: boolean) => void;
 }) {
   const [mode, setMode] = useState<Mode>("automatic");
@@ -36,8 +31,7 @@ export default function ModifierRow({
     return { id: nextId.current++, description: "" };
   }
 
-  // Abre el modal. Desde "+ Add profile" crea un perfil nuevo y lo edita
-  // (si ya hay seis, edita el primero); desde un avatar edita ese perfil.
+  // From "+ Add profile" it creates a new profile (or edits the first one once there are six).
   function openModal(target: "new" | number) {
     let next = [...profiles];
     let editing: number | null;
@@ -81,8 +75,7 @@ export default function ModifierRow({
   }
 
   return (
-    // Móvil (Phone/Home): una fila por control, apilados a la izquierda.
-    // Desde lg, todos en una línea con el modelo a la derecha.
+    // Mobile: one row per control. From lg, a single line with the model on the right.
     <div className="flex flex-col items-start gap-8 px-12 lg:flex-row lg:flex-wrap lg:items-center">
       <ModeSwitch value={mode} onChange={setMode} />
 
@@ -104,8 +97,7 @@ export default function ModifierRow({
       <div className="hidden flex-1 lg:block" />
       <ModelPicker />
 
-      {/* Lo que viaja con el formulario al enviar. Los perfiles solo
-          cuentan en Personal. */}
+      {/* Profiles only count in Personal mode. */}
       <input type="hidden" name="mode" value={mode} />
       {mode === "personal" &&
         profiles.map((p) => <input key={p.id} type="hidden" name="profile" value={p.description} />)}

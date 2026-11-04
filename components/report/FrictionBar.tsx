@@ -6,11 +6,8 @@ const FILL: Record<Friction, string> = {
   high: "bg-danger",
 };
 
-// Fricción de 0 a 100: barra de 100px con el relleno al porcentaje, y la
-// cifra al lado. SIN TOKEN: el ancho de la pista (100px).
-//
-// Igual en Agent y World Model: que un escenario sea estimado ya lo dicen
-// el "~" de time y steps y la nota al pie.
+// NO TOKEN: the 100px track. Same in Agent and World Model: "~" and the footnote already
+// mark a scenario as estimated.
 export default function FrictionBar({ value, level }: { value: number; level: Friction }) {
   return (
     <span className="flex items-center gap-8">

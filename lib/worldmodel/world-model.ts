@@ -13,28 +13,8 @@ import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { pickFailure, quotaInfo, statusOf, type Failure } from "../llm/model-errors";
 
-// ============================================================
-// World Model: detours predichos hacia el mismo objetivo
-// ============================================================
-// Una sola llamada al LLM, sin navegar, desde el primer estado capturado
-// y la ruta que midió el agente (WorldModelInput, ya compacto). Devuelve
-// WMScenario[] (sin Time ni capturas; la tabla los pinta como estimated).
-//
-// No va dentro del análisis del agente: lo pide la UI aparte, por
-// /api/world-model, cuando el reporte del agente ya está en pantalla.
-//
-// Proveedor por config:
-// - WORLD_MODEL_PROVIDER = "gemini" (por defecto) | "openrouter".
-// - Gemini: GEMINI_MODEL, el mismo modelo que el Agent, con salida
-//   estructurada (responseSchema): el JSON es válido por contrato, no por
-//   pedirlo en el texto. Si aun así no se puede leer, un reintento.
-// - Si el proveedor elegido falla y el otro está configurado, se prueba
-//   el otro. OpenRouter necesita OPENROUTER_API_KEY y OPENROUTER_MODEL
-//   (p. ej. un Qwen 3 o un DeepSeek; el id exacto, el de openrouter.ai).
-//
-// Toda la cadena tiene TIMEOUT_MS: al vencer se cancela la llamada en
-// curso y se devuelve un fallo. Cada fallo se loguea con su estado HTTP,
-// su mensaje y si fue de parseo; a la UI le llega una razón corta.
+// One model call, no browsing, from the first captured state and the agent's measured route. The
+// provider (WORLD_MODEL_PROVIDER) falls back to the other one if configured; TIMEOUT_MS bounds the chain.
 
 const TIMEOUT_MS = Number(process.env.WORLD_MODEL_TIMEOUT_MS) || 25_000;
 const SCENARIOS = 3;
@@ -44,29 +24,23 @@ const MAX_RECOMMENDATION = 160;
 const MAX_LABEL = 60;
 const MAX_NAME = 80;
 const MAX_STEP_NODES = 8;
-// Llamadas por proveedor cuando la respuesta no se puede leer: la
-// original y un reintento.
+// Calls per provider when the answer can't be read: the original plus one retry.
 const PARSE_ATTEMPTS = 2;
 
 export type WorldModelOutcome =
   | { ok: true; scenarios: WMScenario[]; model: string }
-  // `reason` es el mensaje corto (Failure.message); kind, retryable y
-  // retryAfterSeconds dicen si el Retry sirve y cuándo.
+  // `reason` is the short message (Failure.message); kind, retryable and retryAfterSeconds tell whether
+  // and when Retry helps.
   | ({ ok: false; reason: string } & Failure);
 
-// ------------------------------------------------------------
-// Proveedores
-// ------------------------------------------------------------
+// ---- Providers ----
 type Provider = "gemini" | "openrouter";
 
-// Tope de la salida. 3 escenarios ocupan ~700 tokens; el margen evita que
-// una respuesta larga se corte (MAX_TOKENS) y deje el JSON a medias.
+// 3 scenarios take ~700 tokens; the margin keeps a long answer from being cut (MAX_TOKENS) mid-JSON.
 const OUTPUT_TOKENS = 4096;
 
-// Forma de la respuesta, como responseSchema de Gemini: { scenarios }
-// con los campos de WMScenario, más goalCheck y reachesGoal (los usan los
-// guardarraíles; obligatorios para que el modelo los rellene). Los topes de longitud van también aquí, además de en
-// el saneado de toScenario.
+// goalCheck and reachesGoal are required so the model always fills what the guardrails need. Length
+// caps live here too, besides toScenario's sanitizing.
 const SCENARIO_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -122,7 +96,7 @@ const SCENARIO_SCHEMA: Schema = {
   required: ["scenarios"],
 };
 
-// Error de proveedor con su estado HTTP, como el ApiError de @google/genai.
+// Provider error with its HTTP status, like @google/genai's ApiError.
 class ProviderError extends Error {
   constructor(
     message: string,
@@ -132,8 +106,7 @@ class ProviderError extends Error {
   }
 }
 
-// Las mismas dos partes que en Gemini: las instrucciones como mensaje
-// "system" y los datos del sitio como único mensaje "user".
+// Same two parts as with Gemini: instructions as the "system" message, site data as the only "user" one.
 async function askOpenRouter(request: ModelRequest, signal: AbortSignal): Promise<GeminiAnswer> {
   const key = process.env.OPENROUTER_API_KEY;
   const model = process.env.OPENROUTER_MODEL;
@@ -159,7 +132,7 @@ async function askOpenRouter(request: ModelRequest, signal: AbortSignal): Promis
     choices?: { message?: { content?: string }; finish_reason?: string }[];
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  // Mismos nombres que Gemini: "stop" → STOP, "length" → MAX_TOKENS.
+  // Gemini's names: "stop" → STOP, "length" → MAX_TOKENS.
   const finish = data.choices?.[0]?.finish_reason;
   return {
     text: data.choices?.[0]?.message?.content ?? "",
@@ -177,23 +150,20 @@ function providerOrder(): Provider[] {
   return order.filter(configured);
 }
 
-// Una llamada, sin reintentos de red: los proveedores comparten los
-// TIMEOUT_MS, y si el free tier limita mejor pasar al siguiente.
+// No network retries: providers share TIMEOUT_MS, and if the free tier throttles it's better to move on.
 const ask = (provider: Provider, request: ModelRequest, signal: AbortSignal) =>
   provider === "openrouter" ? askOpenRouter(request, signal) : askGeminiDetailed(request, { signal });
 
 const modelName = (provider: Provider) =>
   provider === "openrouter" ? (process.env.OPENROUTER_MODEL ?? "openrouter") : GEMINI_MODEL;
 
-// ------------------------------------------------------------
-// Validación: del JSON del modelo a RouteRow[]
-// ------------------------------------------------------------
+// ---- Validation: from the model's JSON to scenarios ----
 const STOPWORDS = new Set(
   "the a an to for of and or in on at by with from into your my our this that some something someone thing things".split(" ")
 );
 
-// Palabras del objetivo que deben aparecer en el escenario. Raíz simple
-// (sin s final) y bag/basket valen como cart, como en el emparejador.
+// Goal words that must appear in the scenario. Naive stemming (no trailing s); bag/basket count as
+// cart, as in the matcher.
 const keywords = (text: string): string[] =>
   text
     .toLowerCase()
@@ -212,13 +182,8 @@ const shorten = (text: string, max: number) => {
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
 };
 
-// Label de paso: una acción corta, entera (la UI no la corta con "…").
-// - Texto pegado: el modelo a veces junta la etiqueta del elemento con el
-//   contenido que la sigue ("Click FeaturesEverything you need…"). Si el
-//   label es largo y tiene una minúscula seguida de mayúscula sin espacio,
-//   se corta ahí. Solo si es largo, para no partir nombres como "YouTube".
-// - Después, como mucho MAX_LABEL_WORDS palabras y MAX_LABEL caracteres,
-//   cortando en el último espacio y sin "…".
+// The model sometimes glues the label to the text after it ("Click FeaturesEverything…"); long labels
+// are cut at a lowercase-uppercase join (short ones aren't, to keep "YouTube"), then capped without "…".
 const MAX_LABEL_WORDS = 8;
 function cleanLabel(text: string): string {
   let label = text.replace(/\s+/g, " ").trim();
@@ -235,7 +200,7 @@ function cleanLabel(text: string): string {
   return label.replace(/[\s,;:.–—-]+$/, "");
 }
 
-// La recomendación es una frase: se queda con la primera.
+// A recommendation is one sentence: keep the first.
 const firstSentence = (text: string) => {
   const clean = text.replace(/\s+/g, " ").trim();
   const end = clean.search(/[.!?](\s|$)/);
@@ -256,9 +221,8 @@ interface RawScenario {
   reachesGoal?: unknown;
 }
 
-// Status y tipo tolerantes a variantes ("Success", "BLOCKED", "Alternative
-// Route", "user-error"…): se normalizan antes de comparar, no se descarta
-// por eso. Un tipo que no se reconoce toma el que corresponde a su status.
+// Variants ("Success", "BLOCKED", "user-error"…) are normalized, never a reason to drop. An unknown
+// kind takes the one matching its status.
 const normalize = (value: unknown) =>
   String(value ?? "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
 
@@ -292,14 +256,13 @@ function kindOf(value: unknown, status: WMScenario["status"]): WMKind {
   );
 }
 
-// Un escenario válido o el motivo por el que se descarta (para el log).
+// A valid scenario, or why it was dropped (for the log).
 function toScenario(raw: RawScenario, goalWords: string[]): WMScenario | string {
   const name = typeof raw.user === "string" ? shorten(raw.user, MAX_NAME) : "";
   if (!name) return "no name";
   let status = scenarioStatus(raw.status);
   if (!status) return `unknown status "${String(raw.status)}"`;
-  // Los topes recortan, nunca descartan. Sin recomendación el escenario
-  // se queda; la fila simplemente no muestra la card.
+  // Caps truncate, never drop. Without a recommendation the scenario stays; the row just has no card.
   const recommendation =
     typeof raw.recommendation === "string"
       ? shorten(firstSentence(raw.recommendation), MAX_RECOMMENDATION)
@@ -313,26 +276,20 @@ function toScenario(raw: RawScenario, goalWords: string[]): WMScenario | string 
     .filter((node) => node.label)
     .sort((a, b) => a.index - b.index)
     .slice(0, MAX_STEP_NODES)
-    // Índices 1..n seguidos, sin capturas: es una predicción.
+    // Consecutive 1..n indexes, no screenshots: it's a prediction.
     .map((node, i) => ({ index: i + 1, label: node.label }));
   if (stepNodes.length === 0) return "no step nodes";
 
-  // Fuera del objetivo: ninguna palabra del objetivo en el nombre, los
-  // pasos ni el goalCheck. El prompt ya lo prohíbe; esto es la red. Solo
-  // con goalCheck: es el campo que repite el objetivo con sus palabras.
-  // Sin él no hay con qué comparar si el sitio usa otro idioma (objetivo
-  // "Translator", pasos "Traducir texto"), y el escenario se queda.
+  // Off-goal net (the prompt already forbids it), only with goalCheck: without it there's nothing to
+  // compare on a site in another language (goal "Translator", steps "Traducir texto"), so it stays.
   const goalCheck = typeof raw.goalCheck === "string" ? raw.goalCheck : "";
   const text = keywords([name, goalCheck, ...stepNodes.map((n) => n.label)].join(" "));
   if (goalCheck && goalWords.length > 0 && !goalWords.some((w) => text.includes(w))) {
     return "unrelated to the goal";
   }
 
-  // Coherencia status/pasos con reachesGoal, que el modelo rellena por
-  // schema. Antes se buscaban las palabras del objetivo en el último
-  // paso, y eso descartaba todo cuando el sitio estaba en otro idioma o
-  // usaba sinónimos ("Iniciar sesión" vs "Sign in"). Si dice success o
-  // friction pero que no llega, pasa a blocked en vez de descartarse.
+  // Searching goal words in the last step dropped everything on sites in another language or with synonyms;
+  // now a success/friction that doesn't reach the goal becomes blocked instead of being dropped.
   if (status !== "blocked" && raw.reachesGoal === false) {
     console.log(`[WorldModel] "${name}": ${status} but reachesGoal is false, kept as blocked`);
     status = "blocked";
@@ -340,9 +297,8 @@ function toScenario(raw: RawScenario, goalWords: string[]): WMScenario | string 
   const kind = kindOf(raw.subtitle, status);
 
   const steps = clampInt(raw.steps, stepNodes.length, 30, stepNodes.length);
-  // reachedSteps cuenta posiciones en stepNodes (lo que colorea el
-  // timeline). Success/friction: todos. Blocked: al menos el último queda
-  // sin alcanzar.
+  // reachedSteps counts stepNodes positions (what colors the timeline); for blocked at least the last
+  // one stays unreached.
   const reachedSteps =
     status === "blocked"
       ? clampInt(raw.reachedSteps, 0, stepNodes.length - 1, stepNodes.length - 1)
@@ -361,21 +317,18 @@ function toScenario(raw: RawScenario, goalWords: string[]): WMScenario | string 
   };
 }
 
-// Respuesta que no se puede leer como JSON con escenarios. Se distingue
-// de los fallos del proveedor para el log y para la razón que ve la UI.
+// Kept apart from provider failures, for the log and for the reason the UI shows.
 class ParseError extends Error {}
 
-// El modelo paró por algo que no es STOP (MAX_TOKENS, SAFETY…): el JSON
-// llega cortado o vacío. Cuenta como respuesta ilegible (se reintenta),
-// pero el log lo nombra aparte.
+// A finish other than STOP (MAX_TOKENS, SAFETY…) cuts or empties the JSON: retried as unreadable, but
+// named apart in the log.
 class FinishError extends ParseError {
   constructor(readonly finishReason: string) {
     super(`Generation stopped with finishReason ${finishReason}`);
   }
 }
 
-// Saneado defensivo, aunque la salida sea estructurada: sin fences
-// ```json/``` y solo lo que hay entre el primer "{" y el último "}".
+// Defensive even with structured output: no ```json fences, only what's between the first "{" and the last "}".
 function extractJson(text: string): string {
   const cleaned = cleanJsonResponse(text);
   const start = cleaned.indexOf("{");
@@ -384,7 +337,7 @@ function extractJson(text: string): string {
   return cleaned.slice(start, end + 1);
 }
 
-// Exportada para probar los guardarraíles sin llamar al modelo.
+// Exported to test the guardrails without calling the model.
 export function parseScenarios(text: string, goal: string): WMScenario[] {
   let parsed: { scenarios?: RawScenario[] };
   try {
@@ -416,14 +369,11 @@ export function parseScenarios(text: string, goal: string): WMScenario[] {
   return kept;
 }
 
-// ------------------------------------------------------------
-// Orquestador
-// ------------------------------------------------------------
+// ---- Orchestrator ----
 
 
-// Razón para la UI (paso 9). Un 429 en cualquier intento manda sobre el
-// timeout: si la cuota se agotó, eso es lo que hay que decir, aunque
-// después se acabara el tiempo. El timeout solo cuando no hubo 429.
+// A 429 in any attempt wins over the timeout: if quota ran out, that's what to say, even if time
+// ran out later.
 function failureFor(errors: unknown[], timedOut: boolean): Failure {
   const failure = pickFailure(errors, {
     timedOut,
@@ -441,12 +391,12 @@ function failureFor(errors: unknown[], timedOut: boolean): Failure {
 
 const failed = (failure: Failure): WorldModelOutcome => ({ ok: false, reason: failure.message, ...failure });
 
-// `signal`: el de la petición; si el cliente se desconecta, se corta.
+// `signal`: the request's; a client disconnect cuts the prediction.
 export async function predictDetours(input: WorldModelInput, signal?: AbortSignal): Promise<WorldModelOutcome> {
-  // Se recorta otra vez aquí: la entrada viene del cliente.
+  // Truncated again here: the input comes from the client.
   const pageContext = truncate(input.pageContext, PAGE_CONTEXT_MAX);
-  // El objetivo lo escribió el usuario: instrucciones. La URL, el estado
-  // capturado y la ruta medida vienen del sitio: page_data.
+  // The goal was typed by the user: instructions. URL, captured state and measured route come from the
+  // site: page_data.
   const request: ModelRequest = {
     system: fill(PROMPTS.worldModel, { GOAL: input.goal, N: String(SCENARIOS) }),
     pageData: {
@@ -465,14 +415,13 @@ export async function predictDetours(input: WorldModelInput, signal?: AbortSigna
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), TIMEOUT_MS);
   const stop = signal ? AbortSignal.any([deadline.signal, signal]) : deadline.signal;
-  // Todos los fallos, en orden: la cuota de cualquiera manda (pickFailure).
+  // Every failure, in order: any quota error wins (pickFailure).
   const errors: unknown[] = [];
 
   try {
     for (const provider of providerOrder()) {
-      // Hasta PARSE_ATTEMPTS llamadas iguales si la respuesta no se puede
-      // leer; un fallo del proveedor (red, 429, 5xx) pasa directo al
-      // siguiente.
+      // Up to PARSE_ATTEMPTS identical calls if the answer can't be read; a provider failure (network,
+      // 429, 5xx) moves straight to the next one.
       for (let attempt = 1; attempt <= PARSE_ATTEMPTS; attempt++) {
         if (stop.aborted) break;
         const started = Date.now();

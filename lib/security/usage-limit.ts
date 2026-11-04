@@ -1,17 +1,11 @@
-// Límite de uso (paso 9): protege la cuota de Gemini del propio usuario, no
-// repele tráfico masivo. Un análisis hace unas 13 llamadas al modelo y el
-// free tier permite 15 por minuto: dos análisis en paralelo ya la agotan.
-//
-// Estado en memoria del proceso del servidor: Spector corre en local con
-// un solo servidor.
-//
-// Módulo sin dependencias: los tests lo cargan con `node --test`.
+// Protects the user's own Gemini quota, not against mass traffic: an analysis makes ~13 calls and the
+// free tier allows 15 per minute. In-memory state: Spector runs locally on a single server.
 
 export interface LimitConfig {
   maxConcurrent: number;
   maxPerWindow: number;
   windowMs: number;
-  // Para los mensajes: "analysis", "prediction".
+  // For messages: "analysis", "prediction".
   noun: string;
 }
 
@@ -19,7 +13,7 @@ export type Acquired =
   | { ok: true; release: () => void }
   | { ok: false; reason: "busy" | "window"; message: string; retryAfterSeconds: number };
 
-// Mientras hay uno en curso, otro espera unos segundos antes de reintentar.
+// While one is running, the next waits a few seconds before retrying.
 const BUSY_RETRY_S = 10;
 
 export function createLimiter(config: LimitConfig) {
@@ -67,8 +61,7 @@ export function createLimiter(config: LimitConfig) {
 
 export type Limiter = ReturnType<typeof createLimiter>;
 
-// Los de la app. Un análisis a la vez y 6 cada 10 minutos (~80 llamadas al
-// modelo). La predicción del World Model es una llamada: una a la vez y 15
-// cada 10 minutos (cubre los Retry).
+// One analysis at a time and 6 per 10 minutes (~80 model calls). A prediction is one call: one at a
+// time and 15 per 10 minutes, which covers Retry.
 export const ANALYSIS_LIMIT: LimitConfig = { maxConcurrent: 1, maxPerWindow: 6, windowMs: 10 * 60_000, noun: "analysis" };
 export const PREDICTION_LIMIT: LimitConfig = { maxConcurrent: 1, maxPerWindow: 15, windowMs: 10 * 60_000, noun: "prediction" };

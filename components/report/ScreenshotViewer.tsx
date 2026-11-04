@@ -6,26 +6,11 @@ import { ARROW as STRIP_ARROW } from "./arrow";
 import StepNumber from "./StepNumber";
 import type { Step } from "./sample";
 
-// Las mismas flechas de la secuencia, centradas en vertical sobre la captura.
+// The sequence's own arrows, vertically centered over the screenshot.
 const ARROW = `absolute top-1/2 -translate-y-1/2 ${STRIP_ARROW}`;
 
-// Visor de capturas del Reporte. Abre una captura de la secuencia a tamaño
-// completo, hasta max-w-content (1080px) de ancho, centrada sobre el mismo
-// scrim que el modal de perfiles. <dialog> nativo: atrapa el foco y cierra
-// con Escape; también con la X y con click fuera de la card.
-//
-// Sin tema oscuro: arriba, una barra clara (neutral-100, borde
-// neutral-300) con el número y la descripción del paso y la X a la
-// derecha; debajo, la captura al ancho completo del visor. Las flechas son
-// las mismas de la secuencia y pasan al paso anterior o siguiente de la
-// misma ruta (también con ← y →, escuchadas en el documento para que
-// sigan funcionando cuando la flecha pulsada desaparece en un extremo).
-//
-// Cualquier paso se abre igual, con captura o sin ella. Sin captura (ruta
-// del World Model o datos de ejemplo), en el sitio de la imagen va un recuadro
-// con la misma proporción que las capturas (16:10) y la descripción
-// completa, que en la tira queda cortada a 3 líneas. En una ruta
-// predicha, con "Predicted" encima, como su thumb.
+// ← and → are listened on the document so they keep working when the clicked arrow disappears
+// at either end. Steps without a screenshot show a 16:10 box with the full description.
 export default function ScreenshotViewer({
   steps,
   simulated = false,
@@ -35,7 +20,7 @@ export default function ScreenshotViewer({
 }: {
   steps: Step[];
   simulated?: boolean;
-  // Paso abierto (índice en `steps`), o null si el visor está cerrado.
+  // Open step (index into `steps`), or null when closed.
   index: number | null;
   onChange: (index: number) => void;
   onClose: () => void;
@@ -75,10 +60,8 @@ export default function ScreenshotViewer({
       onClick={(e) => {
         if (e.target === dialogRef.current) onClose();
       }}
-      // px-16 siempre, para que la captura nunca toque los bordes de la
-      // pantalla; el ancho máximo suma ese padding a container-content,
-      // así la captura sigue llegando a 1080px. Un click en el margen cae
-      // en el propio <dialog> y cierra, como fuera de la card.
+      // px-16 always, so the screenshot never touches the screen edges; the max width adds it back so
+      // the image still reaches 1080px. A click in the margin lands on the <dialog> and closes it.
       className="m-auto w-full max-w-[calc(var(--container-content)+var(--spacing-16)*2)] bg-transparent p-0 px-16 backdrop:bg-neutral-700/50"
     >
       {step && index !== null && (
@@ -105,7 +88,7 @@ export default function ScreenshotViewer({
 
           <div className="relative">
             {step.screenshot ? (
-              // Captura real del navegador (data URL en JPEG).
+              // A JPEG data URL: next/image has nothing to optimize.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={step.screenshot}
@@ -115,8 +98,7 @@ export default function ScreenshotViewer({
                 }`}
               />
             ) : (
-              // Sin captura: la descripción completa. px-48 deja sitio a
-              // las flechas, que van encima a spacing-12 de cada borde.
+              // px-48 leaves room for the arrows, which sit spacing-12 from each edge.
               <div
                 className={`flex aspect-[16/10] w-full flex-col items-center justify-center gap-8 rounded-md border bg-neutral-100 px-48 text-center ${
                   simulated

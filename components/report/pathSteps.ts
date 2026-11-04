@@ -1,19 +1,14 @@
 import type { Route, Step } from "./sample";
 
-// La tira solo trae el camino (fromComparison deja fuera los pasos
-// descartados al replanificar): la columna Steps y la numeración cuentan
-// todos sus pasos.
+// The strip only carries the path (re-plan discards are dropped), so Steps and numbering count all of it.
 
 export const pathLength = (steps: Step[]) => steps.length;
 
-// Número del paso dentro del camino ("01", "02"…).
+// Step number within the path ("01", "02"…).
 export const pathNumber = (index: number) => String(index + 1).padStart(2, "0");
 
-// Marca los pasos no alcanzados, para que el timeline cambie de azul a
-// neutral-600 justo donde la ruta se detuvo. Una ruta completada
-// (RECOMMENDED, EXECUTED, SUCCESS) llega entera; una BLOCKED o
-// UNREACHABLE, hasta `reachedSteps` o, sin él, hasta el primer paso que
-// falló (el que falló ya no cuenta como alcanzado).
+// Marks unreached steps so the timeline turns gray exactly where the route stopped; the failed
+// step itself no longer counts as reached.
 export function withReach(route: Route): Step[] {
   const stopped = route.status === "blocked" || route.status === "unreachable";
   const firstFailed = route.steps.findIndex((step) => step.failed);

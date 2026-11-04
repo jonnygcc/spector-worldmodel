@@ -10,10 +10,8 @@ import {
 } from "../security/browser-sandbox";
 import { buildFindElementScript, EXTRACT_STATE_SCRIPT, MAX_TITLE, TAG_ELEMENTS_SCRIPT } from "./page-scripts";
 
-// El navegador del análisis sale a la red solo por el proxy del validador
-// de URLs (lib/security/url-guard.ts), sin prompts de permisos, y queda
-// registrado en la sesión del análisis para cerrarse siempre
-// (lib/security/browser-sandbox.ts).
+// Egress only through the URL guard's proxy, no permission prompts, and registered in the analysis
+// session so it always gets closed.
 export async function launchBrowser(): Promise<Browser> {
   return await trackBrowser(await launchGuardedChromium(resolveChromiumPath(), undefined, SANDBOX_ARGS));
 }
@@ -26,7 +24,7 @@ export async function captureState(page: Page): Promise<PageState> {
   await tagInteractiveElements(page);
 
   const url = page.url();
-  // Con tope: el título entra en los prompts (inyección y volumen, paso 7).
+  // Capped: the title ends up in prompts (injection and volume).
   const title = ((await evaluateWithTimeout<string>(page, "document.title")) || "")
     .replace(/\s+/g, " ")
     .trim()
@@ -66,8 +64,7 @@ export async function visitAndCapture(url: string): Promise<{
     const state = await captureState(page);
     return { browser, page, state };
   } catch (error) {
-    // Si el sitio no carga, el navegador no se cerraba nunca: cada intento
-    // fallido dejaba un Chromium abierto.
+    // Without this, every failed load left a Chromium open.
     await browser.close().catch(() => {});
     throw error;
   }
@@ -76,14 +73,13 @@ export async function visitAndCapture(url: string): Promise<{
 export interface ElementCandidate {
   selector: string;
   label: string;
-  // Puntaje de emparejamiento, 0–1 (ver findElementMatch).
+  // Match score, 0–1 (see findElementMatch).
   score: number;
-  // Longitud compartida entre la etiqueta y la buscada, 0–1.
+  // Share of the label in common with the target, 0–1.
   coverage: number;
 }
 
-// Los mejores candidatos para una etiqueta, uno por etiqueta distinta y
-// de mayor a menor puntaje. Vacío si nada se parece.
+// One per distinct label, best first; empty if nothing is close.
 export async function findElementCandidates(
   page: Page,
   targetLabel: string,
@@ -97,10 +93,8 @@ export async function findElementCandidates(
   return (found ?? []).map((c) => ({ ...c, score: Math.max(0, Math.min(1, c.score / 1000)) }));
 }
 
-// Mejor candidato para una etiqueta, con su puntaje de emparejamiento
-// normalizado a 0–1 (el script puntúa de 0 a 1000: 1 = etiqueta idéntica,
-// 0.9 = igual salvo números, 0.7 = una empieza por la otra, 0.5 = la
-// contiene, 0.4 = está contenida, 0.3 = parecido sin números).
+// Score normalized from the script's 0–1000: 1 identical, 0.9 same but numbers, 0.7 prefix,
+// 0.5 contains, 0.4 contained, 0.3 similar without numbers.
 export async function findElementMatch(
   page: Page,
   targetLabel: string,

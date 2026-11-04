@@ -2,8 +2,7 @@ import type { AnalysisStage } from "./goal-analysis";
 import type { PersonaMode, RouteComparison } from "./goal-types";
 import type { Failure } from "../llm/model-errors";
 
-// Petición del análisis. `goal` es el texto del campo de objetivo de la
-// barra, tal cual lo escribió el usuario (o lo puso un chip).
+// `goal` is the bar's goal field text as typed (or as a chip filled it).
 export type AnalysisRequest = {
   url: string;
   goal: string;
@@ -11,16 +10,13 @@ export type AnalysisRequest = {
   customPersona?: string;
 };
 
-// Eventos del stream de /api/goal/stream, uno por línea (NDJSON). El error
-// trae el motivo real (Failure): cuota, tiempo, sitio… y si tiene sentido
-// reintentar, y cuándo.
+// One NDJSON line per event; the error carries the real reason (Failure) and whether and when to retry.
 export type AnalysisEvent =
   | { type: "stage"; stage: AnalysisStage }
   | { type: "result"; result: RouteComparison }
   | ({ type: "error"; stage: AnalysisStage | null } & Failure);
 
-// Topes de la petición. La URL más larga razonable, un objetivo de una o
-// dos frases y la descripción de un perfil.
+// The longest reasonable URL, a one- or two-sentence goal and a profile description.
 export const MAX_URL = 2048;
 export const MAX_GOAL = 500;
 export const MAX_PERSONA = 2000;
@@ -28,9 +24,7 @@ export const MAX_ANALYSIS_BODY = 8_000;
 
 const FIELDS = new Set(["url", "goal", "personaMode", "customPersona"]);
 
-// Esquema estricto (paso 9): solo los campos esperados, con su tipo y su
-// largo. Lo que no encaje se rechaza antes de abrir el navegador o de
-// gastar una llamada al modelo. Devuelve la petición limpia o el motivo.
+// Strict schema: anything else is rejected before a browser opens or a model call is spent.
 export function validateAnalysisRequest(
   body: unknown
 ): { ok: true; request: AnalysisRequest } | { ok: false; error: string } {

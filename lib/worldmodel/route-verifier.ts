@@ -33,38 +33,29 @@ import {
 
 const ROUTES_TO_VERIFY = 2;
 
-// Puntaje mínimo de emparejamiento (0–1, ver findElementMatch) para dar
-// por presente el elemento del paso siguiente al comprobar la expectativa.
+// Minimum match score (0–1, see findElementMatch) to consider the next step's element present.
 const MATCH_THRESHOLD = 0.5;
-// Verificación previa, antes de pulsar nada. Confianza = puntaje × cobertura
-// (la parte de la etiqueta que comparten). Umbral estricto 0.6: pasan la
-// etiqueta idéntica (1), la idéntica salvo números (0.9) y las que empiezan
-// igual y casi miden lo mismo. "Search" para "search button" empieza igual
-// (0.69) pero cubre la mitad: 0.32, no se pulsa.
+// Confidence = score × coverage. At 0.6, "Search" for "search button" starts the same (0.69) but
+// covers half the label (0.32), so it isn't clicked.
 const STRICT_THRESHOLD = 0.6;
-// Si otro candidato con etiqueta distinta queda a menos de esto del mejor,
-// el paso es ambiguo y tampoco se pulsa.
+// Another candidate with a different label within this margin of the best makes the step ambiguous.
 const AMBIGUITY_MARGIN = 0.1;
-// Re-sueños por ruta. Si hace falta un tercero, la ruta es 'unreachable'.
+// Re-plans per route; needing a third makes the route 'unreachable'.
 const MAX_REDREAMS = 2;
-// Tope de pasos intentados por ruta, sumando todos los planes.
+// Cap on attempted steps per route, across all plans.
 const MAX_ATTEMPTS = 12;
 
 const needsElement = (step: RouteStep) => step.type === "click" || step.type === "type";
 
-// Texto visible de toda la página. Antes se comparaban solo los primeros
-// 3000 caracteres, y un cajón de carrito, que se añade al final del body,
-// no contaba como cambio. Con tope (MAX_PAGE_TEXT) y con timeout: una
-// página gigante o colgada no frena el análisis.
+// The whole page: comparing only the first 3000 characters missed a cart drawer appended at the end
+// of the body. Capped and timed so a huge or frozen page can't stall the analysis.
 const pageText = async (page: Page): Promise<string> =>
   (await evaluateWithTimeout<string>(
     page,
     `document.body ? document.body.innerText.slice(0, ${MAX_PAGE_TEXT}) : ''`
   ).catch(() => "")) || "";
 
-// ============================================================
-// Acción de un paso
-// ============================================================
+// ---- Step action ----
 async function act(
   page: Page,
   step: RouteStep,
@@ -92,8 +83,7 @@ async function act(
       try {
         await element.click({ timeout: 6000 });
       } catch {
-        // Un popup o un banner tapa el elemento: click directo en el DOM,
-        // que dispara sus handlers aunque haya algo encima.
+        // A popup or banner covers the element: a DOM click still fires its handlers.
         await withTimeout(
           element.evaluate((el) => (el as HTMLElement).click()),
           ACTION_TIMEOUT_MS,
@@ -111,7 +101,7 @@ async function act(
     await page.waitForTimeout(1200);
     return { executed: true, stateChanged: true };
   } catch {
-    // sin navegación
+    // no navigation
   }
 
   await page.waitForTimeout(1500);
@@ -123,9 +113,7 @@ async function act(
   return { executed: true, stateChanged: bodyBefore !== bodyAfter };
 }
 
-// ============================================================
-// Comprobación de la expectativa, sin el modelo
-// ============================================================
+// ---- Expectation check, without the model ----
 const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 const withoutHash = (u: string) => u.split("#")[0];
 const occurrences = (text: string, needle: string) => (needle ? text.split(needle).length - 1 : 0);
@@ -149,8 +137,8 @@ async function checkExpectation(
   const urlHintMatched = hint ? urlAfter.toLowerCase().includes(hint) : null;
 
   const signals = step.expectedSignals ?? [];
-  // Una señal solo cuenta si es nueva o aparece más veces que antes de la
-  // acción: "Cart" está siempre en la cabecera y no prueba nada.
+  // A signal only counts if it's new or appears more often than before the action: "Cart" is always
+  // in the header and proves nothing.
   const signalsFound = signals.filter(
     (sig) => occurrences(text, normalize(sig)) > occurrences(before, normalize(sig))
   );
@@ -164,10 +152,10 @@ async function checkExpectation(
 
   const checks = { urlChanged, urlAsExpected, urlHintMatched, signalsFound, signalsMissing, nextElementFound };
 
-  // Una acción que no cambia nada nunca cumple la expectativa.
+  // An action that changes nothing never meets the expectation.
   if (!stateChanged) return { check: "diverged", checks };
 
-  // Cada comprobación aplicable suma de 0 a 1; las señales, en proporción.
+  // Each applicable check adds 0 to 1; signals count proportionally.
   const parts: number[] = [];
   if (urlAsExpected !== null) parts.push(urlAsExpected ? 1 : 0);
   if (urlHintMatched !== null) parts.push(urlHintMatched ? 1 : 0);
@@ -180,9 +168,7 @@ async function checkExpectation(
   return { check, checks };
 }
 
-// ============================================================
-// Verificación previa: ¿se puede pulsar el candidato con confianza?
-// ============================================================
+// ---- Pre-check: can the candidate be clicked with confidence? ----
 const confidence = (c: ElementCandidate) => Math.round(c.score * c.coverage * 100) / 100;
 
 function preCheck(
@@ -199,7 +185,7 @@ function preCheck(
       rivals: [],
     };
   }
-  // Una etiqueta idéntica no es ambigua: las demás son otra cosa.
+  // An identical label isn't ambiguous: the others are something else.
   const rivals = top >= 1 ? [] : others.filter((c) => confidence(c) >= top - AMBIGUITY_MARGIN);
   if (rivals.length > 0) {
     return {
@@ -213,9 +199,7 @@ function preCheck(
   return { ok: true };
 }
 
-// ============================================================
-// ¿El sitio detuvo la ruta? Login, pago o protección anti-bots
-// ============================================================
+// ---- Did the site stop the route? Login, payment or bot protection ----
 async function detectBlock(page: Page, goal: Goal): Promise<string | null> {
   const goalText = `${goal.description} ${goal.successCriteria}`.toLowerCase();
   const found = (await evaluateWithTimeout(
@@ -230,8 +214,7 @@ async function detectBlock(page: Page, goal: Goal): Promise<string | null> {
   ).catch(() => null)) as { text: string; password: boolean; card: boolean } | null;
   if (!found) return null;
 
-  // El texto sale en el idioma del sitio: Google le sirve a este equipo su
-  // página /sorry/ en español ("tráfico inusual").
+  // The text comes in the site's language: Google serves its /sorry/ page in Spanish here ("tráfico inusual").
   if (
     /\/sorry\/|captcha|cdn-cgi\/challenge/i.test(page.url()) ||
     /captcha|verify you are human|are you a robot|access denied|checking your browser|unusual traffic|press and hold|press & hold|tráfico inusual|no soy un robot|acceso denegado/.test(found.text)
@@ -247,9 +230,7 @@ async function detectBlock(page: Page, goal: Goal): Promise<string | null> {
   return null;
 }
 
-// ============================================================
-// Verifica una ruta en el navegador, re-soñando si diverge
-// ============================================================
+// ---- Verify a route in the browser, re-planning when it diverges ----
 async function verifyRoute(
   browser: Browser,
   url: string,
@@ -258,7 +239,7 @@ async function verifyRoute(
   persona: Persona,
   goalSignals: GoalSignals
 ): Promise<Route> {
-  // Contexto nuevo por ruta: sin cookies ni storage de la otra ruta.
+  // A fresh context per route: no cookies or storage from the other route.
   const page = await newSandboxedPage(browser);
   const results: RouteStepResult[] = [];
   let plan = route.predictedSteps;
@@ -266,20 +247,13 @@ async function verifyRoute(
   let i = 0;
   let outcome: RouteOutcome | null = null;
   let blockReason = "";
-  // La ruta salió del sitio analizado: termina ahí (step-guard.ts).
+  // The route left the analyzed site: it ends there (step-guard.ts).
   let leftSite = "";
 
   let replansBeforeAction = 0;
 
-  // Re-sueño desde la página real, disparado por el último resultado.
-  // Devuelve false si la ruta termina.
-  //
-  // El paso que lo disparó es un tropiezo del motor: queda descartado (se
-  // guarda, no cuenta). La excepción: un paso que sí cambió la página y
-  // tras el que el re-sueño dice que el objetivo ya está cumplido; ese
-  // paso fue el que llegó. Los pasos anteriores del plan abandonado que
-  // salieron bien se quedan: el navegador está donde ellos lo dejaron y
-  // el nuevo plan sigue desde ahí.
+  // The triggering step is an engine stumble and gets discarded, unless it changed the page and the re-plan
+  // says the goal is met: that step is the one that arrived. Earlier good steps stay; the new plan starts there.
   const replan = async (trigger: "before-action" | "after-action", reason: string): Promise<boolean> => {
     const last = results[results.length - 1];
     last.redream = trigger;
@@ -312,8 +286,8 @@ async function verifyRoute(
     await gotoAllowed(page, url, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1200);
     await page.keyboard.press("Escape").catch(() => {});
-    // El sitio es donde aterrizó la URL (linear.app → www.linear.app), y su
-    // texto es la base para comprobar las señales del objetivo al final.
+    // The site is where the URL landed (linear.app → www.linear.app); its text is the baseline for the
+    // goal signals at the end.
     const siteUrl = page.url();
     const initialText = await pageText(page);
 
@@ -322,7 +296,7 @@ async function verifyRoute(
         outcome = "unreachable";
         break;
       }
-      // Plan terminado y el último paso no divergió: objetivo cumplido.
+      // Plan finished and the last step didn't diverge: goal met.
       if (i >= plan.length) {
         outcome = "reached";
         break;
@@ -332,9 +306,8 @@ async function verifyRoute(
       console.log(`  [${route.id}] plan ${planNumber} step ${i + 1}: "${step.targetElement}"`);
       const urlBefore = page.url();
 
-      // 1. Verificación previa: el mejor candidato debe superar el umbral
-      //    estricto y no tener rivales parecidos. Si no, re-sueño sin
-      //    pulsar nada.
+      // 1. Pre-check: the best candidate must clear the strict threshold with no close rivals; otherwise
+      //    re-plan without clicking anything.
       let element: Locator | null = null;
       let found: RouteStepResult["found"] = null;
       if (needsElement(step)) {
@@ -356,22 +329,21 @@ async function verifyRoute(
         element = page.locator(best.selector).first();
       }
 
-      // 2. Acción.
+      // 2. Action.
       const textBefore = await pageText(page);
       const done = await act(page, step, element);
       const state = await captureState(page);
 
-      // 3. ¿Salió del sitio analizado? Un enlace de la página no puede
-      //    llevar al agente a otro dominio y seguir contando como el flujo
-      //    de este sitio.
+      // 3. Left the analyzed site? A page link can't take the agent to another domain and still count as
+      //    this site's flow.
       const offSite = sameSite(siteUrl, page.url())
         ? null
         : `Left the analyzed site for ${siteHost(page.url()) ?? "another page"}.`;
 
-      // 4. ¿El sitio la detuvo?
+      // 4. Did the site stop it?
       const block = offSite ? null : await detectBlock(page, goal);
 
-      // 5. Expectativa.
+      // 5. Expectation.
       const { check, checks } = await checkExpectation(page, step, urlBefore, textBefore, done.stateChanged, plan[i + 1]);
       const whatHappened = offSite
         ? offSite
@@ -414,23 +386,20 @@ async function verifyRoute(
     const finalState = await captureState(page);
     const finalOutcome: RouteOutcome = outcome ?? "unreachable";
 
-    // ¿Llegó de verdad? Las señales del objetivo, buscadas con código en la
-    // página final. Que el plan se agote o que el modelo diga que el
-    // objetivo está cumplido no basta.
+    // Did it really arrive? A finished plan or the model saying the goal is met isn't enough: code looks
+    // for the goal signals on the final page.
     const evidence =
       finalOutcome === "reached"
         ? checkGoalEvidence(goalSignals, initialText, await pageText(page), page.url())
         : null;
     await page.close();
-    // Métricas solo sobre el camino: los pasos descartados al replanificar
-    // describen los tropiezos del motor, no el flujo del sitio.
+    // Metrics only over the path: steps discarded on re-plan are engine stumbles, not the site's flow.
     const path = results.filter((r) => !r.discarded);
     const completed = path.filter((r) => r.executed && r.stateChanged).length;
     const partials = path.filter((r) => r.check === "partial").length;
 
-    // Fricción real: penaliza el final, los pasos de más y los que solo
-    // cumplieron en parte la expectativa. Los re-sueños no suman: son del
-    // motor, no del sitio.
+    // Penalizes the ending, extra steps and partly met expectations. Re-plans don't add: they're the
+    // engine's, not the site's.
     const endPenalty = finalOutcome === "reached" ? 0 : finalOutcome === "blocked" ? 0.6 : 1;
     const lengthPenalty = Math.max(0, (completed - 2) * 0.1);
     const realFriction = Math.min(1, endPenalty + lengthPenalty + partials * 0.05);
@@ -462,14 +431,13 @@ async function verifyRoute(
     };
   } catch (error) {
     await page.close().catch(() => {});
-    // Cuota agotada, plazo vencido o cliente desconectado no son un fallo
-    // de esta ruta: suben. Si el navegador se cerró porque el análisis
-    // terminó, checkDeadline lanza el motivo real.
+    // Quota, deadline or disconnect aren't this route's failure: they propagate. If the browser closed
+    // because the analysis ended, checkDeadline throws the real reason.
     if (mustPropagate(error)) throw error;
     checkDeadline();
     return {
       ...route,
-      // Si falló antes del primer paso (la página no cargó), no se ejecutó.
+      // Failed before the first step (the page didn't load): it never ran.
       verified: results.length > 0,
       stepResults: results,
       realFriction: 1,
@@ -485,9 +453,7 @@ async function verifyRoute(
   }
 }
 
-// ============================================================
-// Compara todas las rutas y genera el veredicto
-// ============================================================
+// ---- Compare all routes and produce the verdict ----
 async function compareRoutes(
   goal: Goal,
   persona: Persona,
@@ -513,8 +479,7 @@ async function compareRoutes(
     verdict: r.verdict,
   }));
 
-  // Las rutas llevan texto del sitio (etiquetas, títulos en el verdict):
-  // van como page_data.
+  // Routes carry site text (labels, titles in the verdict), so they go as page_data.
   const response = await askGemini({
     system: fill(PROMPTS.compareRoutes, {
       GOAL_DESCRIPTION: goal.description,
@@ -543,9 +508,7 @@ async function compareRoutes(
   }
 }
 
-// ============================================================
-// ORCHESTRATOR: verifica las rutas top y compara
-// ============================================================
+// ---- Orchestrator: verify the top routes and compare ----
 export async function verifyAndCompare(
   url: string,
   goal: Goal,
@@ -554,8 +517,7 @@ export async function verifyAndCompare(
   initialState: PageState,
   routes: Route[],
   goalSignals: GoalSignals = NO_SIGNALS,
-  // Se llama al terminar la verificación y antes de comparar, para que
-  // quien escuche pueda distinguir las dos etapas.
+  // Called after verification and before comparing, so listeners can tell the two stages apart.
   onCompare?: () => void
 ): Promise<RouteComparison> {
   const browser = await launchBrowser();
@@ -579,9 +541,8 @@ export async function verifyAndCompare(
     console.log("[Routes] Comparing routes...");
     const comparison = await compareRoutes(goal, persona, allRoutes);
 
-    // El mejor solo puede ser una ruta ejecutada que llegó al objetivo y
-    // cuya llegada se comprobó (goal-evidence.ts). El más probable debe
-    // existir; si el modelo da otro id, el de mayor probabilidad.
+    // The best route must have run, arrived and been verified (goal-evidence.ts). The most likely one must
+    // exist; if the model returns another id, the highest probability wins.
     const bestRouteId = pickBestRouteId(allRoutes, comparison.bestRouteId);
     const mostLikelyRouteId = allRoutes.some((r) => r.id === comparison.mostLikelyRouteId)
       ? comparison.mostLikelyRouteId

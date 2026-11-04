@@ -1,8 +1,6 @@
 "use client";
 
-// Atajo de objetivo. Hover y seleccionado comparten estilo: texto y borde
-// en neutral-800. El seleccionado se marca con aria-pressed. Quién está
-// seleccionado lo decide GoalChips, que guarda el estado del grupo.
+// Selection is owned by GoalChips; the chip only reflects it through aria-pressed.
 export default function GoalChip({
   label,
   selected = false,

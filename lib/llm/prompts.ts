@@ -1,18 +1,10 @@
-// Prompts especializados para cada capa del world model.
-//
-// Son instrucciones de sistema (systemInstruction): solo llevan
-// placeholders de confianza (objetivo, criterio de éxito, perfil), que se
-// sustituyen con fill() en una sola pasada. Lo que viene del sitio
-// analizado nunca entra aquí: va aparte, como {"page_data": …} en el
-// mensaje del usuario (lib/llm/prompt-data.ts). Cada prompt describe los
-// campos de page_data que recibe.
+// System instructions with trusted placeholders only, filled by fill() in one pass. Site content never
+// goes here: it's sent as {"page_data": …}, and each prompt describes the fields it receives.
 import { PAGE_DATA_RULES } from "./prompt-data";
 
 export const PROMPTS = {
-  // Antes de visitar el sitio, solo a partir del objetivo: qué texto o qué
-  // URL prueban que el objetivo se cumplió. El código las busca al final
-  // de cada ruta (goal-evidence.ts). Sin page_data: la página no puede
-  // influir en ellas.
+  // Derived from the goal alone, before visiting the site, so the page can't influence them;
+  // goal-evidence.ts looks for them at the end of each route.
   goalSignals: `You are the Goal Checker of Spector, a UX world model.
 
 Before Spector visits a website, you define how to recognize, with simple text matching, that a user has completed a goal on it. You have not seen the site.
@@ -226,12 +218,8 @@ Respond with JSON. Fields:
 Example:
 {"bestRouteId":"r2","mostLikelyRouteId":"r1","verdict":"Most visitors reach for the header link, but that path adds two extra screens before the form. The footer route is shorter and cleaner, yet almost nobody finds it.","recommendation":"Move the direct sign-up action into the hero so the shortest path is also the most visible one."}`,
 
-  // World Model: una sola llamada, sin navegar, desde el primer estado
-  // capturado. Base del prompt tal como se definió para el producto (sin
-  // Time); se añaden "goalCheck", para que el código pueda descartar
-  // escenarios que no terminan en el objetivo, el orden de stepNodes (sin
-  // él, el modelo ponía el desvío al final, después de "add to cart") y el
-  // máximo de palabras de nombres y pasos.
+  // Product prompt plus goalCheck (so code can drop off-goal scenarios), stepNodes order (otherwise
+  // the detour landed at the end) and word limits.
   worldModel: `You are a world model of the web. From a SINGLE captured state, predict how real users might deviate from the happy path while pursuing the SAME goal, using your knowledge of how websites and users behave. You never navigate.
 
 Goal: {GOAL}

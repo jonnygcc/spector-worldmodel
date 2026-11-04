@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-// Solo Gemini funciona: el motor usa Gemini (lib/llm/gemini.ts) y la API
-// no recibe modelo. El resto se muestra deshabilitado con "Soon".
+// Only Gemini works: the engine uses lib/llm/gemini.ts and the API takes no model.
 const MODELS = [
   { name: "Opus 5.5", available: false },
   { name: "GPT Astra", available: false },
@@ -12,11 +11,7 @@ const MODELS = [
   { name: "Gemini Flash", available: true },
 ];
 
-// Selector de modelo (frames Desktop/Home y Desktop/Home/Model AI).
-// Abre y cierra con click en el trigger; elegir un ítem lo selecciona y
-// cierra; Escape y click fuera cierran. El menú cuelga 4px bajo el
-// trigger, alineado a la derecha. El modelo elegido viaja con el
-// formulario en un input oculto "model".
+// The chosen model travels with the form in a hidden "model" input.
 export default function ModelPicker({
   defaultModel = "Gemini Flash",
 }: {

@@ -1,10 +1,8 @@
 import type { PageState } from "./types";
 import type { Route, RouteComparison } from "./goal-types";
 
-// Entrada del World Model, ya compacta. Se arma en el cliente a partir del
-// resultado del agente (sin capturas: el primer estado pesa varios MB con
-// ellas) y se manda a /api/world-model, que la vuelve a recortar por si
-// acaso. Módulo sin dependencias de servidor, para que lo use la UI.
+// Built on the client from the agent result, without screenshots (the first state weighs several MB
+// with them); /api/world-model truncates again just in case. No server deps, so the UI can use it.
 
 export interface WorldModelInput {
   url: string;
@@ -13,15 +11,12 @@ export interface WorldModelInput {
   happyPath: string;
 }
 
-// Topes de caracteres. Una portada grande da ~4000 caracteres con los
-// límites de elementos; el tope cubre páginas con etiquetas muy largas.
+// A large homepage yields ~4000 characters within the element limits; the cap covers very long labels.
 export const PAGE_CONTEXT_MAX = 8000;
 export const HAPPY_PATH_MAX = 2000;
 
-// Esquema estricto de la entrada que llega del cliente (paso 9): los cuatro
-// campos, strings, con largo máximo. Lo que el cliente arma con
-// worldModelInputOf siempre encaja (truncate añade como mucho su sufijo);
-// lo demás se rechaza antes de gastar una llamada al modelo.
+// What worldModelInputOf builds always fits (truncate adds at most its suffix); anything else is
+// rejected before a model call is spent.
 const TRUNCATED_SUFFIX = "\n… (truncated)";
 export const MAX_WORLD_MODEL_FIELD = {
   url: 2048,
@@ -59,9 +54,7 @@ export function validateWorldModelInput(
 export const truncate = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max)}\n… (truncated)` : text;
 
-// El primer estado sin HTML: título, descripción, encabezados y los
-// elementos interactivos, primero los del contenido y luego cabecera y
-// pie (en una portada, los del contenido son los que llevan al objetivo).
+// Content elements first, then header and footer: on a homepage the content ones lead to the goal.
 export function compactPageContext(state: PageState): string {
   const content = state.interactiveElements.filter((el) => el.region !== "chrome").slice(0, 50);
   const chrome = state.interactiveElements.filter((el) => el.region === "chrome").slice(0, 30);
@@ -76,9 +69,7 @@ export function compactPageContext(state: PageState): string {
   return truncate(text, PAGE_CONTEXT_MAX);
 }
 
-// La ruta del agente que sirve de referencia: la recomendada, o si no la
-// más probable de las ejecutadas. Solo los pasos del camino (sin los
-// descartados al replanificar). Sin ruta ejecutada, lo dice.
+// The recommended route, else the most likely executed one; path steps only. Says so when none ran.
 export function happyPathOf(comparison: Pick<RouteComparison, "routes" | "bestRouteId">): string {
   const executed = comparison.routes.filter((r) => r.verified);
   const route: Route | undefined =

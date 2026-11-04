@@ -5,19 +5,14 @@ import { checkApiRequest, readBody } from "@/lib/security/request-guard";
 import { createLimiter, PREDICTION_LIMIT } from "@/lib/security/usage-limit";
 import { describeFailure, type Failure } from "@/lib/llm/model-errors";
 
-// Predicción del World Model, aparte del análisis del agente: la pide la
-// UI cuando el reporte del agente ya está en pantalla (y con Retry).
-// Entrada: WorldModelInput, ya compacto (sin HTML ni capturas). Responde
-// con WorldModelOutcome: { ok: true, scenarios, model } o { ok: false,
-// reason, kind, retryable, retryAfterSeconds }. El motor tiene su propio
-// tiempo máximo (25s).
+// Requested by the UI once the agent report is on screen, so a slow or rate-limited
+// prediction never holds the report back.
 export const maxDuration = 60;
 
-// Tope del cuerpo: la entrada ya viene recortada; más que esto no es una
-// entrada válida.
+// The client already truncates its input; anything bigger is not a valid request.
 const MAX_BODY = 20_000;
 
-// Una predicción a la vez y un tope por ventana (usage-limit.ts).
+// One prediction at a time plus a per-window cap (usage-limit.ts).
 const limiter = createLimiter(PREDICTION_LIMIT);
 
 function failed(status: number, failure: Failure) {
@@ -30,8 +25,7 @@ function failed(status: number, failure: Failure) {
 
 const invalid = (status: number, message: string) => failed(status, { kind: "unknown", message, retryable: false });
 
-// Antes de gastar una llamada al modelo (paso 9): origen y tipo de
-// contenido, tamaño, esquema estricto y límite de uso.
+// Every check runs before a model call is spent.
 export async function POST(request: NextRequest) {
   const guard = checkApiRequest(request.headers);
   if (!guard.ok) return invalid(guard.status, guard.error);
@@ -53,9 +47,8 @@ export async function POST(request: NextRequest) {
     return failed(429, { kind: "busy", message: slot.message, retryable: true, retryAfterSeconds: slot.retryAfterSeconds });
   }
 
-  // predictDetours ya convierte los fallos del modelo en { ok: false }.
-  // Esto atrapa lo demás (un bug del motor) con su stack completo en el
-  // log del servidor, y la UI recibe su error con Retry en vez de un 500.
+  // predictDetours already turns model failures into { ok: false }; this catches engine bugs,
+  // logs the stack and still gives the UI a retryable error instead of a 500.
   try {
     const outcome = await predictDetours(validation.input, request.signal);
     return NextResponse.json(outcome, {

@@ -2,15 +2,8 @@ import { Suspense } from "react";
 import StageList from "@/components/loading/StageList";
 import { STAGE_IDS, type StageId } from "@/components/loading/stages";
 
-// Pantalla Loading (frame Desktop/Loading).
-//
-// RUTA DE PREVIEW, con datos de ejemplo. El análisis real vive en la Home
-// (components/analysis/AnalysisScreen.tsx): Loading, Reporte y Error son
-// estados de esa misma pantalla. /loading, /loading/error y /report se
-// quedan para ver cada estado sin correr un análisis.
-//
-// ?stage=<id> fija la etapa activa (load, profiles, find, simulate,
-// browser, compare) para revisar cada posición de la lista.
+// Preview route with sample data; the real flow lives in AnalysisScreen. ?stage=<id> pins
+// the active stage (load, profiles, find, simulate, browser, compare).
 export default function Loading({
   searchParams,
 }: {
@@ -19,9 +12,7 @@ export default function Loading({
   return (
     <section className="flex flex-1 flex-col items-center justify-center px-16 py-48 lg:flex-none lg:justify-start lg:px-24 lg:py-140">
       <div className="flex w-full max-w-narrow justify-center">
-        {/* searchParams es dato de la petición: con cacheComponents se lee
-            dentro de Suspense para que el resto se prerenderice. Mientras
-            tanto se ve la lista en la primera etapa. */}
+        {/* searchParams is request data: with cacheComponents it's read inside Suspense so the rest prerenders. */}
         <Suspense fallback={<StageList />}>
           <PreviewStage searchParams={searchParams} />
         </Suspense>

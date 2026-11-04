@@ -11,8 +11,7 @@ import { fill } from "../llm/prompt-data";
 import { PERSONA_SCHEMA } from "../llm/schemas";
 
 async function buildPersonaFromDescription(description: string): Promise<Persona> {
-  // La descripción la escribe el usuario, no el sitio: va en las
-  // instrucciones. Sin page_data.
+  // Written by the user, not the site: it goes in the instructions, with no page_data.
   const response = await askGemini({
     system: fill(PROMPTS.buildPersona, { DESCRIPTION: description }),
     schema: PERSONA_SCHEMA,
@@ -37,7 +36,7 @@ async function buildPersonaFromDescription(description: string): Promise<Persona
       techSavvy: parsed.techSavvy || "medium",
     };
   } catch {
-    // Fallback: usamos la descripcion cruda del usuario
+    // Fallback: the user's raw description.
     return {
       id: "custom",
       label: "Custom persona",
@@ -63,7 +62,7 @@ export async function resolvePersona(
     };
   }
 
-  // Modo automatico: elegimos el arquetipo que mejor encaja con el objetivo
+  // Automatic mode: the archetype that best fits the goal.
   return {
     mode: "automatic",
     resolved: pickAutoPersona(goalId),

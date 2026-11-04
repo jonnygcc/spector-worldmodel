@@ -7,27 +7,23 @@ import { ROUTES_SCHEMA } from "../llm/schemas";
 
 export interface RouteEntry {
   id: string;
-  // Nombre de la ruta en inglés, para mostrar. entryPoint es la etiqueta
-  // literal del elemento (en el idioma del sitio) y sirve para encontrarlo.
+  // English display name; entryPoint is the element's literal label (site language), used to find it.
   name?: string;
   entryPoint: string;
   entryType: InteractiveElement["type"];
   entryDescription: string;
   howUsersFindIt: string;
-  // Dónde termina la ruta y si eso cumple el criterio de éxito. Las que
-  // no lo cumplen se descartan.
+  // Where the route ends and whether that meets the success criteria; routes that don't are dropped.
   endState?: string;
   meetsCriteria?: boolean;
-  // Cómo lleva al objetivo y si de verdad lo sirve. Las que no (una
-  // búsqueda cuando el objetivo es iniciar sesión) se descartan antes de
-  // ejecutar nada.
+  // How it leads to the goal and whether it truly serves it; routes that don't (a search when the goal
+  // is to log in) are dropped before anything runs.
   goalLink?: string;
   servesGoal?: boolean;
   probability: number;
 }
 
-// Resultado del finder: las rutas válidas y las candidatas que se
-// descartaron por no servir al objetivo (para explicar un resultado vacío).
+// Valid routes plus the off-goal candidates that were dropped (to explain an empty result).
 export interface RouteSearch {
   routes: RouteEntry[];
   offGoal: string[];
@@ -48,7 +44,7 @@ export async function findRoutes(
 ): Promise<RouteSearch> {
   const elements = state.interactiveElements.slice(0, 30);
 
-  // Instrucciones con el objetivo y el perfil; la página, como datos.
+  // Instructions carry goal and profile; the page goes as data.
   const request = {
     system: fill(PROMPTS.findRoutes, {
       GOAL_DESCRIPTION: goal.description,
@@ -76,10 +72,8 @@ export async function findRoutes(
         continue;
       }
 
-      // Solo rutas que sirven al objetivo y terminan cumpliendo el criterio
-      // de éxito; sin servesGoal explícito, tampoco. Una lista vacía es un
-      // resultado válido: no hay camino al objetivo, y no se rellena con
-      // rutas ajenas.
+      // Without an explicit servesGoal, a route is dropped too. An empty list is a valid result (no path
+      // to the goal) and is never padded with unrelated routes.
       const offGoal: string[] = [];
       const raw = parsed.filter((route) => {
         if (route.servesGoal !== true) {

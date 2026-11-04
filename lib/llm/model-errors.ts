@@ -1,23 +1,15 @@
-// Errores honestos (paso 9): qué pasó de verdad, con un mensaje corto para
-// el cliente y el detalle en el log del servidor (regla del paso 1).
-//
-// - Un 429 de Gemini es cuota, nunca un timeout. Si Gemini dice cuándo
-//   reintentar (RetryInfo.retryDelay), se respeta; si la cuota agotada es
-//   la diaria, no se ofrece reintentar.
-// - Un timeout es un timeout solo si no hubo antes un 429 que lo explique.
-//
-// Módulo sin dependencias: los tests lo cargan con `node --test`. Los
-// errores de otros módulos se reconocen por su `name`.
+// A Gemini 429 is quota, never a timeout. Short message to the client, details in the log. No
+// dependencies so `node --test` can load it; other modules' errors are matched by `name`.
 
 export type FailureKind = "quota" | "timeout" | "overloaded" | "site" | "not-allowed" | "busy" | "cancelled" | "unknown";
 
-// Lo que ve el cliente cuando algo falla.
+// What the client sees when something fails.
 export interface Failure {
   kind: FailureKind;
   message: string;
-  // Puede reintentarse (el botón tiene sentido).
+  // Whether a retry button makes sense.
   retryable: boolean;
-  // Segundos hasta que reintentar tenga sentido. Sin valor: ya.
+  // Seconds until retrying makes sense; absent means now.
   retryAfterSeconds?: number;
 }
 
@@ -26,7 +18,7 @@ export const statusOf = (error: unknown): number | null => {
   return typeof status === "number" ? status : null;
 };
 
-// Cuota de Gemini agotada, con lo que se sabe de cuándo vuelve.
+// Gemini quota exhausted, with whatever is known about when it comes back.
 export class ModelQuotaError extends Error {
   readonly retryAfterMs: number | null;
   readonly daily: boolean;
@@ -39,9 +31,8 @@ export class ModelQuotaError extends Error {
   }
 }
 
-// ¿Es un 429 de cuota? El ApiError de @google/genai trae el status y, como
-// mensaje, el cuerpo JSON de Gemini: RetryInfo.retryDelay ("37s") dice
-// cuándo reintentar y QuotaFailure.violations[].quotaId si es la diaria.
+// @google/genai's ApiError carries the status, with Gemini's JSON body as its message: RetryInfo
+// says when to retry and QuotaFailure.quotaId whether it's the daily quota.
 export function quotaInfo(error: unknown): { retryAfterMs: number | null; daily: boolean } | null {
   if (error instanceof ModelQuotaError) return { retryAfterMs: error.retryAfterMs, daily: error.daily };
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -63,7 +54,7 @@ export function quotaInfo(error: unknown): { retryAfterMs: number | null; daily:
       }
     }
   } catch {
-    // Mensaje que no es JSON: se busca a mano.
+    // Not JSON: search the text instead.
     const delay = /retryDelay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)s/.exec(message);
     if (delay) retryAfterMs = Math.round(Number.parseFloat(delay[1]) * 1000);
     daily = /PerDay/i.test(message);
@@ -71,10 +62,8 @@ export function quotaInfo(error: unknown): { retryAfterMs: number | null; daily:
   return { retryAfterMs, daily };
 }
 
-// Errores que ninguna etapa debe tragarse para seguir con un valor por
-// defecto: cuota agotada, plazo vencido o cliente desconectado. Si el
-// re-sueño se tragara un 429, la ruta saldría "unreachable" en vez de
-// decir que se agotó la cuota.
+// No stage may swallow these and carry on with a default: a swallowed 429 in the re-plan turned the
+// route "unreachable" instead of reporting the quota.
 export function mustPropagate(error: unknown): boolean {
   const name = (error as { name?: unknown })?.name;
   return (
@@ -88,7 +77,7 @@ export function mustPropagate(error: unknown): boolean {
 const firstLine = (error: unknown) =>
   (error instanceof Error ? error.message : String(error ?? "")).split("\n")[0].trim();
 
-// Sin dato de Gemini, la cuota por minuto del free tier vuelve en un minuto.
+// Without Gemini's hint, the free tier's per-minute quota resets within a minute.
 const DEFAULT_QUOTA_WAIT_S = 60;
 const OVERLOADED_WAIT_S = 15;
 
@@ -109,9 +98,8 @@ export function quotaFailure(retryAfterMs: number | null, daily: boolean): Failu
   };
 }
 
-// Con varios intentos fallidos (el World Model prueba más de una vez y con
-// tiempo máximo): si alguno fue de cuota, manda la cuota, aunque después se
-// acabara el tiempo. El timeout solo cuando no hubo 429. Si no, el último.
+// With several attempts (the World Model retries under a deadline), a quota error wins even if time
+// ran out later; timeout only applies when there was no 429.
 export function pickFailure(
   errors: unknown[],
   { timedOut = false, timeoutMessage = "The request took too long." } = {}
@@ -122,9 +110,7 @@ export function pickFailure(
   return describeFailure(errors[errors.length - 1]);
 }
 
-// Cualquier error del análisis o de la predicción → lo que ve el cliente.
-// `timedOut`: el plazo de quien llama venció (el World Model); solo cuenta
-// si el error no es de cuota.
+// `timedOut`: the caller's deadline expired; only counts when the error isn't quota.
 export function describeFailure(error: unknown, { timedOut = false, timeoutMessage = "" } = {}): Failure {
   const quota = quotaInfo(error);
   if (quota) return quotaFailure(quota.retryAfterMs, quota.daily);
@@ -148,8 +134,7 @@ export function describeFailure(error: unknown, { timedOut = false, timeoutMessa
       retryAfterSeconds: OVERLOADED_WAIT_S,
     };
   }
-  // Errores de Playwright al cargar o navegar el sitio: net::ERR_…, o el
-  // timeout de navegación.
+  // Playwright errors while loading or navigating the site: net::ERR_…, or the navigation timeout.
   const line = firstLine(error);
   const net = /net::ERR_[A-Z_]+/.exec(line);
   if (net) return { kind: "site", message: `The site couldn't be loaded (${net[0]}).`, retryable: true };

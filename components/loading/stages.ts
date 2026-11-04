@@ -8,10 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-// Etapas del motor, en orden. Módulo aparte (sin "use client") para que
-// los componentes de servidor, como la preview /loading, puedan leer los
-// ids: los valores que exporta un módulo de cliente no se pueden usar en
-// el servidor.
+// Separate module (no "use client") so server components like the /loading preview can read the ids.
 export type StageId =
   | "load"
   | "profiles"

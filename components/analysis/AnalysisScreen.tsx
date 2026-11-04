@@ -20,8 +20,7 @@ import type { RouteComparison } from "@/lib/worldmodel/goal-types";
 import type { WorldModelOutcome } from "@/lib/worldmodel/world-model";
 import { worldModelInputOf } from "@/lib/worldmodel/world-model-input";
 
-// Tiempo máximo de la petición del World Model desde el navegador. El
-// motor corta a los 25s; esto cubre el viaje y un servidor que no responde.
+// The engine stops at 25 s; this covers the round trip and a server that never answers.
 const WORLD_MODEL_TIMEOUT_MS = 35_000;
 
 type Phase =
@@ -29,28 +28,19 @@ type Phase =
   | { kind: "starting" }
   | { kind: "loading"; stage: AnalysisStage }
   | { kind: "report"; result: RouteComparison }
-  // retryable / retryAfterSeconds: si "Try again" sirve y cuándo (cuota).
+  // Whether "Try again" can help, and when (quota).
   | {
       kind: "error";
       message: string;
       stage: AnalysisStage | null;
       retryable?: boolean;
       retryAfterSeconds?: number;
-      // Cambia en cada error: reinicia la cuenta atrás del botón.
+      // Changes on every error so the retry countdown restarts.
       at: number;
     };
 
-// Pantalla única del análisis. La Home es el estado inicial; al enviar
-// pasa a Loading con la etapa real que reporta el motor, y de ahí a
-// Reporte o Error.
-//
-// El reporte se muestra en cuanto el agente termina. El World Model se
-// pide después, aparte (/api/world-model): su sección tiene su propio
-// loading, y si falla, su propio error con Retry; nunca bloquea la página.
-//
-// La barra se queda montada (solo se oculta) para que "Edit URL" y "Back
-// to home" vuelvan con todo lo que se había elegido: URL, objetivo, modo,
-// perfiles y modelo.
+// The World Model is requested separately after the report shows, so it never blocks the page.
+// The bar stays mounted (only hidden) so Edit URL and Back keep everything the user chose.
 export default function AnalysisScreen() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [focusSignal, setFocusSignal] = useState(0);
@@ -95,8 +85,7 @@ export default function AnalysisScreen() {
           retryAfterSeconds: outcome?.retryAfterSeconds,
         });
     } catch (error) {
-      // Abortada por una petición nueva o por volver a la Home: no hay nada
-      // que mostrar. Por el tiempo máximo, sí.
+      // Aborted by a newer request or by going home: nothing to show. A timeout does show.
       if (controller.signal.aborted && !timedOut) return;
       console.error("[WorldModel] request failed:", error);
       setWorldModel({
@@ -130,8 +119,7 @@ export default function AnalysisScreen() {
         signal: controller.signal,
       });
 
-      // Rechazo antes de empezar (validación, origen, límite de uso): JSON
-      // con { error } y, si aplica, retryable / retryAfterSeconds.
+      // Rejected before starting (validation, origin, rate limit).
       if (!response.ok || !response.body) {
         const body = (await response.json().catch(() => null)) as {
           error?: string;
@@ -255,15 +243,13 @@ export default function AnalysisScreen() {
             meta={metaFromComparison(phase.result, submission.model)}
             onBack={backToHome}
           />
-          {/* Agent con los datos reales del motor; World Model debajo,
-              siempre, con su propio estado (cargando, error o escenarios). */}
+          {/* The World Model section always renders, with its own loading, error or scenarios state. */}
           <div className="flex w-full flex-col gap-48">
             <ReportSection mode="agent" meta={agentMetaFromComparison(phase.result)}>
               {routesFromComparison(phase.result).length > 0 ? (
                 <ReportTable routes={routesFromComparison(phase.result)} firstColumn="Route" id="agent" />
               ) : (
-                // Sin rutas: el motor explica por qué en su veredicto. No hay
-                // diseño para este caso.
+                // No routes: the engine's verdict explains why. There's no design for this case.
                 <p className="font-body text-body font-regular leading-lg text-neutral-600">
                   {phase.result.verdict}
                 </p>

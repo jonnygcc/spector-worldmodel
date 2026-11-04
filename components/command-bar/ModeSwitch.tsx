@@ -7,9 +7,7 @@ const SEGMENT =
 const ACTIVE = "border-neutral-800 bg-neutral-800 text-neutral-100";
 const INACTIVE = "border-neutral-300 bg-neutral-100 text-neutral-600";
 
-// Selector de quién define los perfiles. Dos segmentos unidos: el activo
-// es neutral-800 relleno, el inactivo va con borde neutral-300. Controlado:
-// el estado vive en ModifierRow, que muestra los perfiles en Personal.
+// Controlled: the state lives in ModifierRow, which shows the profiles in Personal mode.
 export default function ModeSwitch({
   value,
   onChange,

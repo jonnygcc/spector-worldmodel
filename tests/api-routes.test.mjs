@@ -1,5 +1,4 @@
-// Tests de las rutas API (paso 9): `npm test`.
-// Node carga los .ts directamente (type stripping).
+// API route tests (`npm test`). Node loads the .ts files directly (type stripping).
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -31,16 +30,14 @@ import { DEFAULT_POLICY, launchGuardedChromium } from "../lib/security/url-guard
 
 const launchGuardedChromiumForTests = (path) => launchGuardedChromium(path, DEFAULT_POLICY, SANDBOX_ARGS);
 
-// Cabeceras como las de un Request.
+// Headers shaped like a Request's.
 const headers = (values) => {
   const map = new Map(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
   return { get: (name) => map.get(name.toLowerCase()) ?? null };
 };
 const SPECTOR = { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000", "content-type": "application/json" };
 
-// ============================================================
-// 1. Origen y tipo de contenido
-// ============================================================
+// ---- 1. Origin and content type ----
 describe("origen", () => {
   test("la propia UI pasa (mismo origen, loopback)", () => {
     assert.deepEqual(checkApiRequest(headers(SPECTOR)), { ok: true });
@@ -143,9 +140,7 @@ describe("tamaño del cuerpo", () => {
   });
 });
 
-// ============================================================
-// 2. Esquema
-// ============================================================
+// ---- 2. Schema ----
 describe("esquema de /api/goal/stream", () => {
   const valid = { url: "https://linear.app", goal: "See the pricing plans", personaMode: "automatic" };
 
@@ -214,9 +209,7 @@ describe("esquema de /api/world-model", () => {
   }
 });
 
-// ============================================================
-// 3. Límite de uso
-// ============================================================
+// ---- 3. Rate limit ----
 describe("límite de uso", () => {
   test("un análisis en curso impide lanzar otro en paralelo", () => {
     const limiter = createLimiter({ maxConcurrent: 1, maxPerWindow: 10, windowMs: 60_000, noun: "analysis" });
@@ -249,11 +242,8 @@ describe("límite de uso", () => {
   });
 });
 
-// ============================================================
-// 4 y 5. Errores honestos y Retry que sirva
-// ============================================================
-// Un 429 como lo lanza @google/genai: ApiError con status y, como mensaje,
-// el cuerpo JSON de Gemini.
+// ---- 4 and 5. Honest errors and a useful Retry ----
+// A 429 as @google/genai throws it: ApiError with the status and Gemini's JSON body as the message.
 const apiError = (status, body) => Object.assign(new Error(JSON.stringify(body)), { name: "ApiError", status });
 const gemini429 = (retryDelay, quotaId = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier") =>
   apiError(429, {
@@ -338,9 +328,7 @@ describe("errores honestos", () => {
   });
 });
 
-// ============================================================
-// 6. Cancelar al desconectar
-// ============================================================
+// ---- 6. Cancel on disconnect ----
 const CHROMIUM = resolveChromiumPath();
 
 describe("cancelar al desconectar", () => {
@@ -388,7 +376,7 @@ describe("cancelar al desconectar", () => {
       30_000,
       client.signal
     );
-    // Esperar a que el navegador exista antes de desconectar.
+    // Wait for the browser to exist before disconnecting.
     while (!browser) await new Promise((r) => setTimeout(r, 50));
     client.abort();
     await assert.rejects(run, AnalysisCancelledError);

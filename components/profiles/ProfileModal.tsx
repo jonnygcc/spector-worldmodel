@@ -12,12 +12,8 @@ import {
   type Profile,
 } from "./profiles";
 
-// Modal de perfiles (frame Desktop/Home – Modal). <dialog> nativo: atrapa
-// el foco, cierra con Escape y pinta el scrim con ::backdrop
-// (neutral-700 al 50%). Click fuera de la card también cierra. Cerrar
-// descarta los cambios; "Save" los aplica.
-//
-// SIN TOKEN: el ancho de la card, 448px.
+// Native <dialog>: traps focus, closes on Escape and draws the scrim. Closing discards changes.
+// NO TOKEN: the card width, 448px.
 export default function ProfileModal({
   open,
   draft,
@@ -53,7 +49,7 @@ export default function ProfileModal({
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
-  // Al cambiar de perfil, el foco vuelve al texto de ese perfil.
+  // Switching profiles moves focus back to that profile's text.
   useEffect(() => {
     if (open) textareaRef.current?.focus();
   }, [editingId, open]);
@@ -112,7 +108,7 @@ export default function ProfileModal({
         <button
           type="button"
           onClick={onSave}
-          // mt-8 + el gap-8 de la card = 16px entre el textarea y Save.
+          // mt-8 plus the card's gap-8 = 16px between the textarea and Save.
           className="mt-8 w-full cursor-pointer rounded-full bg-accent p-8 font-body text-body font-medium leading-rg tracking-tight text-neutral-100 transition-colors duration-150 hover:bg-accent-hover"
         >
           Save

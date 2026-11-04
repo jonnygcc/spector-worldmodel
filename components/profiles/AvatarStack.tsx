@@ -1,20 +1,12 @@
 import { User, X } from "lucide-react";
 import { visibleProfiles, type Profile } from "./profiles";
 
-// El avatar y el contador miden size-control (26.1px), el mismo alto que
-// "Add profile" y el resto de pastillas de la fila, para que la fila no
-// crezca al aparecer. Dentro del borde quedan 24.1px: el icono de 16 deja
-// 4px por lado y queda centrado.
-//
-// SIN TOKEN: el padding de 2px de la x de eliminar, y su desplazamiento
-// de 2px (translate 1/8 de su tamaño) además de spacing-4.
+// size-control (26.1px) matches the row's other pills so the row doesn't grow when avatars appear.
+// NO TOKEN: the remove x's 2px padding and its 2px offset.
 const AVATAR =
   "relative flex size-control shrink-0 cursor-pointer items-center justify-center rounded-full border bg-neutral-100 text-neutral-800";
 
-// Avatares de los perfiles, separados por spacing-4. Se ven `count` y el
-// resto se agrupa en un contador "+N" del mismo tamaño y borde. Si el
-// perfil que se está editando queda fuera, ocupa el último hueco para que
-// siempre se vea; solo ese lleva la x de eliminar.
+// If the profile being edited would be hidden, it takes the last slot so it stays visible.
 export default function AvatarStack({
   profiles,
   count,

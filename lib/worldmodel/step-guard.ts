@@ -1,21 +1,15 @@
 import type { NavigationExpectation, RouteStep } from "./goal-types";
 
-// Validación de la salida del modelo antes de actuar en el navegador. El
-// modelo elige qué pulsar y qué escribir; una página puede intentar
-// dirigirlo, así que aquí se acota qué puede pedir.
-//
-// Módulo sin dependencias de runtime (solo tipos): los tests lo cargan con
-// `node --test`.
+// The model picks what to click and type, and a page may try to steer it, so this bounds what it can
+// ask for. No runtime deps (types only), for `node --test`.
 
 export const STEP_TYPES = ["click", "type", "press", "scroll"] as const;
 export const TARGET_TYPES = ["button", "link", "input"] as const;
 
-// Teclas que un paso "press" puede pulsar: enviar, cerrar, moverse por una
-// lista. Nada de atajos ni combinaciones.
+// Submit, close, move through a list. No shortcuts or key combinations.
 export const ALLOWED_KEYS = ["Enter", "Escape", "Tab", "ArrowDown", "ArrowUp"] as const;
 
-// Largo máximo de lo que el agente escribe en un campo: un email, una
-// búsqueda, un nombre. Más que eso se recorta.
+// An email, a search, a name; anything longer is truncated.
 export const MAX_TYPED_VALUE = 100;
 const MAX_DESCRIPTION = 200;
 const MAX_TARGET = 120;
@@ -26,8 +20,7 @@ const clip = (text: string, max: number) => text.replace(/\s+/g, " ").trim().sli
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === "string" && (list as readonly string[]).includes(value);
 
-// Un paso en forma válida, o null si no se puede ejecutar tal como vino:
-// tipo desconocido, tecla fuera de la lista, o un click/type sin elemento.
+// null if the step can't run as it came: unknown type, a key outside the list, or click/type with no element.
 export function sanitizeStep(raw: Partial<RouteStep> | null | undefined, order: number): RouteStep | null {
   if (!raw || !isOneOf(STEP_TYPES, raw.type)) return null;
   const type = raw.type;
@@ -67,8 +60,7 @@ export function sanitizeStep(raw: Partial<RouteStep> | null | undefined, order: 
   };
 }
 
-// Los pasos válidos de una lista, renumerados. Un paso inválido se
-// descarta; no se adivina qué quería decir.
+// Invalid steps are dropped, not guessed at.
 export function sanitizeSteps(raw: unknown, max: number): RouteStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -78,11 +70,8 @@ export function sanitizeSteps(raw: unknown, max: number): RouteStep[] {
     .map((step, i) => ({ ...step, order: i + 1 }));
 }
 
-// ¿La URL sigue en el sitio analizado? Sin lista de sufijos públicos: un
-// host es del sitio si es el mismo, o uno es subdominio del otro (sin
-// "www."). shop.x.com y x.com sí; x.github.io e y.github.io, o
-// bbc.co.uk y otro.co.uk, no. Un login en otro dominio corta la ruta: es
-// el precio de no dejar que una página mande al agente a otro sitio.
+// No public suffix list: same host or one a subdomain of the other (without "www."). A login on another
+// domain cuts the route, the price of never letting a page send the agent elsewhere.
 export function siteHost(url: string): string | null {
   try {
     const { protocol, hostname } = new URL(url);

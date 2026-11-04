@@ -1,5 +1,4 @@
-// Tests del validador de URLs (lib/security/url-guard.ts): `npm test`.
-// Node carga el .ts directamente (type stripping).
+// URL guard tests (lib/security/url-guard.ts, `npm test`). Node loads the .ts directly (type stripping).
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -14,7 +13,7 @@ import {
 } from "../lib/security/url-guard.ts";
 import { resolveChromiumPath } from "../lib/security/browser-sandbox.ts";
 
-// Resolución de DNS falsa: los tests no dependen de la red.
+// Fake DNS: the tests don't depend on the network.
 const fakeDns = (table) => ({
   ports: new Set([80, 443]),
   lookup: async (host) => {
@@ -70,9 +69,9 @@ describe("rangos privados y especiales", () => {
   for (const url of [
     "http://127.0.0.1/",
     "http://127.8.9.10/",
-    "http://127.1/", // forma corta de 127.0.0.1
-    "http://2130706433/", // 127.0.0.1 en decimal
-    "http://0x7f000001/", // 127.0.0.1 en hexadecimal
+    "http://127.1/", // short form of 127.0.0.1
+    "http://2130706433/", // 127.0.0.1 in decimal
+    "http://0x7f000001/", // 127.0.0.1 in hex
     "http://[::1]/",
     "http://10.0.0.1/",
     "http://10.255.255.255/",
@@ -85,7 +84,7 @@ describe("rangos privados y especiales", () => {
     "http://0.1.2.3/",
     "http://[::ffff:127.0.0.1]/",
     "http://[::ffff:7f00:1]/",
-    "http://[::ffff:a00:1]/", // 10.0.0.1 mapeada
+    "http://[::ffff:a00:1]/", // 10.0.0.1, mapped
     "http://[::]/",
     "http://[fd00::1]/",
     "http://[fe80::1]/",
@@ -111,9 +110,9 @@ describe("DNS: se valida la IP resuelta, no la cadena", () => {
   for (const url of [
     "http://evil.example/",
     "https://meta.example/",
-    "http://mixed.example/", // una pública y una privada: basta una
+    "http://mixed.example/", // one public and one private: one is enough
     "http://v6.example/",
-    "http://does-not-exist.example/", // sin resolución: mismo rechazo
+    "http://does-not-exist.example/", // doesn't resolve: same rejection
   ]) {
     test(`rechaza ${url}`, () => rejects(url, dns));
   }
@@ -134,13 +133,8 @@ describe("puertos", () => {
   });
 });
 
-// ============================================================
-// Navegador real: redirecciones y subrecursos pasan por el proxy
-// ============================================================
-// Dos servidores en 127.0.0.1. El "público" es una excepción explícita de
-// la política (solo su puerto); el "interno" no lo es, y cuenta cuántas
-// veces lo tocan: tiene que quedar en 0.
-// SPECTOR_CHROMIUM_PATH, o el Chromium que instala playwright-core.
+// ---- Real browser: redirects and subresources go through the proxy ----
+// The "public" server is an explicit policy exception (its port only); the "internal" one counts hits and must stay at 0.
 const CHROMIUM = resolveChromiumPath();
 
 describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
@@ -221,7 +215,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     try {
       content = await open("/redirect-file");
     } catch {
-      // Chromium no sigue un redirect http → file: y la navegación falla.
+      // Chromium doesn't follow an http → file: redirect, so the navigation fails.
     }
     assert.doesNotMatch(content, /\[fonts\]|for 16-bit app support/i);
   });

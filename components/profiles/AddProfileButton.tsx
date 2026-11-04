@@ -1,7 +1,6 @@
 import { Plus } from "lucide-react";
 
-// "+ Add profile". Pastilla con borde; hover en neutral-800, el mismo
-// patrón que el trigger de modelos y los goal chips.
+// Same hover pattern as the model trigger and the goal chips.
 export default function AddProfileButton({
   onClick,
   disabled = false,

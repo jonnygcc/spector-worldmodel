@@ -2,13 +2,11 @@
 
 import GoalChip from "./GoalChip";
 
-// Atajos de objetivo: textos que se escriben en el campo de objetivo.
+// Shortcut texts written into the goal field.
 export const GOAL_CHIPS = ["Create an account", "Find and purchase", "General scan"];
 
-// Grupo de atajos. No guarda estado: el objetivo es el texto del campo.
-// Pulsar un chip escribe su texto en el campo (reemplaza lo que hubiera),
-// y un chip está seleccionado solo mientras el campo diga exactamente su
-// texto; si el usuario lo edita, deja de estarlo.
+// Stateless: the goal is the field's text, and a chip is selected only while the field
+// matches it exactly.
 export default function GoalChips({
   value,
   onPick,

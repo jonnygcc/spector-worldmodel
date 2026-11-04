@@ -8,8 +8,7 @@ const STYLE: Record<Status, string> = {
   unreachable: "bg-warning-10 text-warning",
   success: "bg-success-10 text-success",
   friction: "bg-warning-10 text-warning",
-  // Habla de la evidencia, no del resultado: contorno gris neutro, sin
-  // relleno, para que no se lea como un tipo de resultado más.
+  // About evidence, not outcome: a neutral outline with no fill, so it doesn't read as another result.
   unverified: "bg-transparent text-neutral-600 ring-1 ring-inset ring-neutral-400",
 };
 
@@ -23,16 +22,11 @@ const MEANING: Record<Status, string> = {
   unverified: "Reached the end of the route, but Spector couldn't confirm the goal on the final page.",
 };
 
-// Un mismo estado se lee distinto según de dónde viene: BLOCKED de un
-// escenario del World Model es una predicción, no lo que pasó.
+// The same status reads differently by source: a World Model BLOCKED is a prediction.
 const PREDICTED_BLOCKED = "Predicted to stop before the goal.";
 
-// Estado de la ruta: RECOMMENDED (verde), EXECUTED (azul), BLOCKED (rojo:
-// el sitio la detuvo), UNREACHABLE (ámbar: no encontró camino tras
-// replanificar), UNVERIFIED (contorno gris: llegó, sin evidencia). Cada uno
-// explica qué significa en un tooltip. El badge vive dentro del botón de
-// la fila, así que no es enfocable: `tooltipId` permite que la fila lo
-// enlace con aria-describedby y lo muestre al recibir el foco.
+// The badge lives inside the row's button and can't take focus: `tooltipId` lets the row point
+// aria-describedby at it and open it on focus.
 export default function StatusBadge({
   status,
   tooltipId,

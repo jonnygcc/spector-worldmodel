@@ -7,8 +7,7 @@ import { toTableRoute, type WMScenario } from "./contract";
 const NOTE =
   "Predicted from the first captured state, not executed. Steps and friction are estimates.";
 
-// Estado de la predicción. La pide la pantalla del análisis aparte, cuando
-// el reporte del agente ya está a la vista.
+// Requested separately by the analysis screen once the agent report is visible.
 export type WorldModelState =
   | { status: "loading" }
   | { status: "ready"; scenarios: WMScenario[] }
@@ -16,20 +15,12 @@ export type WorldModelState =
 
 const TEXT = "font-body text-body font-regular leading-lg text-neutral-600";
 
-// Orden fijo de las filas: Success → Friction → Blocked. Dentro de cada
-// status se mantiene el orden del motor (sort es estable).
+// Fixed order Success → Friction → Blocked; sort is stable, so the engine's order holds within each.
 const STATUS_RANK: Record<WMScenario["status"], number> = { success: 0, friction: 1, blocked: 2 };
 const byStatus = (scenarios: WMScenario[]) =>
   [...scenarios].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
 
-// Sección World Model del reporte. Se dibuja siempre, debajo del Agent,
-// con la misma tabla menos la columna Time. Ninguno de estos estados tiene
-// diseño en Paper; van como texto en la sección, sin tocar el resto:
-// - loading: spinner y "Predicting scenarios…" (el spinner no gira con
-//   reduced motion).
-// - error: qué pasó, la razón corta del motor y Retry (el mismo botón
-//   oscuro del error de carga).
-// - ready sin escenarios (el motor los descartó todos): una línea gris.
+// None of these states has a Paper design, so they render as plain text in the section.
 export default function WorldModelSection({
   state,
   onRetry,
@@ -70,7 +61,7 @@ export default function WorldModelSection({
             </p>
           </div>
           {onRetry && (
-            // key: cada error reinicia la cuenta atrás del botón.
+            // key: each error restarts the button's countdown.
             <RetryButton
               key={`${state.reason}-${state.retryAfterSeconds ?? 0}`}
               label="Retry"

@@ -1,9 +1,6 @@
 import type { WMScenario } from "@/lib/worldmodel/report-contract";
 
-// SAMPLE — escenarios fijos para la preview /report. El análisis real usa
-// los del motor (lib/worldmodel/world-model.ts) y, si falla, muestra un
-// error con Retry. Todos apuntan al objetivo del preview (registrarse en
-// un plan de equipo).
+// SAMPLE — fixed scenarios for the /report preview; the real analysis uses the engine's.
 export const WORLD_MODEL_SAMPLE: WMScenario[] = [
   {
     user: "Can't spot Sign up, searches Google",
@@ -47,7 +44,7 @@ export const WORLD_MODEL_SAMPLE: WMScenario[] = [
     friction: 78,
     status: "blocked",
     recommendation: "Offer an email sign-up option on the SSO redirect screen for users without admin approval.",
-    // 01–03 se alcanzan; el 04 es donde se bloquea.
+    // 01–03 are reached; 04 is where it blocks.
     reachedSteps: 3,
     stepNodes: [
       { index: 1, label: "Start sign up" },

@@ -13,12 +13,10 @@ import { describeFailure, type Failure } from "@/lib/llm/model-errors";
 
 export const maxDuration = 300;
 
-// Un análisis a la vez, y un tope por ventana de tiempo: protegen la cuota
-// de Gemini del usuario (lib/security/usage-limit.ts).
+// One analysis at a time plus a per-window cap: protects the user's Gemini quota.
 const limiter = createLimiter(ANALYSIS_LIMIT);
 
-// Rechazo antes de empezar: JSON con { error } y, si aplica, cuándo
-// reintentar (también como Retry-After).
+// Retry-After mirrors retryAfterSeconds for clients that only read headers.
 function reject(status: number, error: string, failure?: Omit<Failure, "message">) {
   return NextResponse.json(
     { error, ...failure },
@@ -29,14 +27,8 @@ function reject(status: number, error: string, failure?: Omit<Failure, "message"
   );
 }
 
-// Análisis con progreso: responde con un stream NDJSON, un evento "stage"
-// cada vez que el motor entra en una etapa, y al final un "result" con el
-// RouteComparison completo o un "error" con el motivo real (Failure) y la
-// etapa en la que falló.
-//
-// Antes de gastar nada (paso 9): origen y tipo de contenido, tamaño,
-// esquema estricto, URL permitida y límite de uso. Si el cliente se
-// desconecta, el análisis se aborta.
+// NDJSON: "stage" events, then one "result" or "error". Every check runs before a
+// browser or model call is spent, and a client disconnect aborts the analysis.
 export async function POST(request: NextRequest) {
   const guard = checkApiRequest(request.headers);
   if (!guard.ok) return reject(guard.status, guard.error);
@@ -55,9 +47,7 @@ export async function POST(request: NextRequest) {
   if (!validation.ok) return reject(400, validation.error);
   const { url, goal, personaMode, customPersona } = validation.request;
 
-  // Esquema, host, puerto y la IP resuelta, antes de abrir el navegador.
-  // El proxy del navegador vuelve a validar cada conexión (redirecciones
-  // incluidas).
+  // Fail before opening the browser; the egress proxy still re-checks every connection.
   try {
     await assertAllowedUrl(url);
   } catch {
@@ -106,7 +96,7 @@ export async function POST(request: NextRequest) {
         );
         send({ type: "result", result });
       } catch (error) {
-        // Detalle en el log; al cliente, el motivo corto.
+        // Details go to the server log; the client only gets the short reason.
         const failure = describeFailure(error);
         if (failure.kind === "cancelled") {
           console.log(`Goal analysis cancelled at stage "${current}": the client disconnected.`);
@@ -121,7 +111,7 @@ export async function POST(request: NextRequest) {
           try {
             controller.close();
           } catch {
-            // Ya cerrado por el cliente.
+            // Already closed by the client.
           }
         }
       }

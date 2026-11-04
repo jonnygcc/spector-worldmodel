@@ -4,7 +4,7 @@ import { ModelQuotaError, quotaInfo, statusOf } from "./model-errors";
 import { currentAnalysisSignal } from "../security/browser-sandbox";
 
 let lastCallTime = 0;
-const MIN_INTERVAL_MS = 4500; // ~13 requests per minute, por debajo del limite de 15
+const MIN_INTERVAL_MS = 4500; // ~13 requests per minute, under the free tier's 15
 
 async function waitForRateLimit() {
   const now = Date.now();
@@ -23,17 +23,12 @@ export const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// El único modelo de Gemini del proyecto: lo usan el Agent y el World
-// Model. gemini-3.8-flash se probó para el World Model y fallaba (503 por
-// demanda, 429 por cuota, o no respondía en 25s).
+// The project's only Gemini model, for both Agent and World Model. gemini-3.8-flash was tried
+// for the World Model and failed (503 under load, 429 on quota, or no answer within 25s).
 export const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
-// Una llamada al modelo (inyección de prompt, paso 7):
-// - `system`: las instrucciones, por systemInstruction. Solo llevan
-//   valores de confianza (objetivo y perfil del usuario).
-// - `pageData`: lo que viene del sitio analizado, como único mensaje del
-//   usuario: {"page_data": …}. Nunca se concatena con las instrucciones.
-// - `schema`: la forma de la respuesta (responseSchema).
+// Instructions go through systemInstruction with trusted values only; site content travels
+// separately as the {"page_data": …} user message, never concatenated (prompt injection).
 export interface ModelRequest {
   system: string;
   pageData?: unknown;
@@ -41,12 +36,10 @@ export interface ModelRequest {
   maxOutputTokens?: number;
 }
 
-// Tope de la salida de cada llamada. La respuesta más larga (5 rutas o 6
-// pasos con sus expectativas) ronda los 1.500 tokens.
+// The longest answer (5 routes, or 6 steps with expectations) is about 1,500 tokens.
 const OUTPUT_TOKENS = 4096;
 
-// El mensaje de datos de una petición, con su tope. Exportado para el
-// World Model, que lo manda también a OpenRouter.
+// Exported for the World Model, which also sends it to OpenRouter.
 export function contentsOf(request: ModelRequest): string {
   const contents = dataMessage(request.pageData);
   if (contents.length > MAX_DATA_CHARS) {
@@ -65,7 +58,7 @@ function configOf(request: ModelRequest, signal?: AbortSignal): GenerateContentC
   };
 }
 
-// Espera que se corta si se aborta la llamada.
+// A wait that ends early if the call is aborted.
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason ?? new Error("aborted"));
@@ -80,19 +73,14 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     );
   });
 
-// Ante un 429 se espera lo que dice Gemini (RetryInfo.retryDelay) o, sin
-// ese dato, con backoff. Si hay que esperar más que esto, no se reintenta:
-// se falla con ModelQuotaError y el cliente ve cuándo volver a probar.
-// Reintentar de inmediato contra una cuota agotada siempre falla y gasta
-// otra petición.
+// Retrying a 429 right away always fails and spends another request: wait for Gemini's
+// retryDelay (or back off), and give up with ModelQuotaError if the wait would be too long.
 const MAX_QUOTA_WAIT_MS = 20_000;
 const QUOTA_BACKOFF_MS = [8_000, 16_000];
-// Fallos de red o 5xx: backoff corto.
+// Network failures or 5xx: short backoff.
 const ERROR_BACKOFF_MS = [2_000, 4_000];
 
-// `signal`: cancela la llamada en curso y los reintentos. Sin `signal`, el
-// del análisis en curso: si el plazo vence o el cliente se desconecta, la
-// llamada se corta (browser-sandbox.ts).
+// Defaults to the running analysis's signal, so a deadline or a client disconnect cuts the call.
 export async function askGemini(
   request: ModelRequest,
   maxRetries = 3,
@@ -112,10 +100,9 @@ export async function askGemini(
       });
       return response.text ?? "";
     } catch (error: unknown) {
-      // Se guarda para relanzarlo si fallan todos los intentos: sin esto
-      // se lanzaba `undefined` y el motivo real del fallo se perdía.
+      // Kept to rethrow if every attempt fails; otherwise `undefined` was thrown and the real cause lost.
       lastError = error;
-      // Cancelada (plazo o cliente desconectado): no es un fallo del modelo.
+      // Cancelled (deadline or client gone): not a model failure.
       if (signal?.aborted) {
         console.log("[Gemini] call aborted: the analysis ended.");
         throw signal.reason ?? error;
@@ -132,7 +119,7 @@ export async function askGemini(
         await sleep(wait, signal);
         continue;
       }
-      // Otro 4xx (petición inválida, clave rechazada): reintentar no cambia nada.
+      // Any other 4xx (bad request, rejected key): retrying changes nothing.
       const status = statusOf(error);
       if (status !== null && status >= 400 && status < 500) throw error;
       if (attempt < maxRetries) await sleep(ERROR_BACKOFF_MS[attempt - 1] ?? 4_000, signal);
@@ -141,9 +128,8 @@ export async function askGemini(
   throw lastError ?? new Error("Gemini call aborted");
 }
 
-// Respuesta con sus metadatos: el World Model necesita saber por qué paró
-// el modelo (STOP, MAX_TOKENS, SAFETY…) y cuántos tokens usó, para el log.
-// Un solo intento: quien llama decide si reintenta.
+// The World Model needs the finish reason (STOP, MAX_TOKENS, SAFETY…) and token counts for its log.
+// Single attempt: the caller decides whether to retry.
 export interface GeminiAnswer {
   text: string;
   finishReason: string;
