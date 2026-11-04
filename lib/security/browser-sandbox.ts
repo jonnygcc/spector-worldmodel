@@ -167,6 +167,8 @@ export async function withAnalysisDeadline<T>(
   ms = ANALYSIS_TIMEOUT_MS,
   signal?: AbortSignal
 ): Promise<T> {
+  // Otherwise `run` would start in the background and spend model calls after we reject.
+  if (signal?.aborted) throw new AnalysisCancelledError();
   const session: Session = { browsers: new Set(), controller: new AbortController(), ended: null };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;

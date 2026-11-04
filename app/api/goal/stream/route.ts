@@ -7,7 +7,7 @@ import {
   type AnalysisEvent,
 } from "@/lib/worldmodel/analysis-events";
 import { assertAllowedUrl, URL_NOT_ALLOWED } from "@/lib/security/url-guard";
-import { checkApiRequest, readBody } from "@/lib/security/request-guard";
+import { checkApiRequest, linkAbort, readBody } from "@/lib/security/request-guard";
 import { ANALYSIS_LIMIT, createLimiter } from "@/lib/security/usage-limit";
 import { describeFailure, type Failure } from "@/lib/llm/model-errors";
 
@@ -64,15 +64,19 @@ export async function POST(request: NextRequest) {
     return reject(400, URL_NOT_ALLOWED, { kind: "not-allowed", retryable: false });
   }
 
+  // Nobody will read this stream, so don't take the only slot. 499 = client closed request.
+  if (request.signal.aborted) {
+    return reject(499, "The request was cancelled.", { kind: "cancelled", retryable: true });
+  }
+
   const slot = limiter.acquire();
   if (!slot.ok) {
     return reject(429, slot.message, { kind: "busy", retryable: true, retryAfterSeconds: slot.retryAfterSeconds });
   }
 
-  // El cliente cerró la pestaña o abortó el fetch: se cancela el análisis
-  // (navegadores cerrados, llamadas al modelo cortadas).
+  // Next never calls the stream's cancel() if the socket closed before the response.
   const cancel = new AbortController();
-  request.signal.addEventListener("abort", () => cancel.abort(), { once: true });
+  const unlink = linkAbort(request.signal, cancel);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -111,6 +115,7 @@ export async function POST(request: NextRequest) {
         }
         send({ type: "error", stage: current, ...failure });
       } finally {
+        unlink();
         slot.release();
         if (open) {
           try {

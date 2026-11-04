@@ -3,7 +3,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { checkApiRequest, readBody } from "../lib/security/request-guard.ts";
+import { checkApiRequest, linkAbort, readBody } from "../lib/security/request-guard.ts";
 import { createLimiter } from "../lib/security/usage-limit.ts";
 import { validateAnalysisRequest, MAX_GOAL } from "../lib/worldmodel/analysis-events.ts";
 import {
@@ -82,6 +82,51 @@ describe("Content-Type", () => {
   }
   test("acepta application/json con charset", () => {
     assert.deepEqual(checkApiRequest(headers({ ...SPECTOR, "content-type": "application/json; charset=utf-8" })), { ok: true });
+  });
+});
+
+describe("linkAbort", () => {
+  test("con la señal ya abortada, aborta el destino en el acto", () => {
+    const source = new AbortController();
+    source.abort("client gone");
+    const target = new AbortController();
+    linkAbort(source.signal, target);
+    assert.equal(target.signal.aborted, true);
+    assert.equal(target.signal.reason, "client gone");
+  });
+
+  test("contraprueba: addEventListener solo, sobre la señal ya abortada, no dispara", async () => {
+    const source = new AbortController();
+    source.abort();
+    let fired = false;
+    source.signal.addEventListener("abort", () => (fired = true), { once: true });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(fired, false);
+  });
+
+  test("con la señal sin abortar, aborta el destino cuando la fuente se aborta", () => {
+    const source = new AbortController();
+    const target = new AbortController();
+    linkAbort(source.signal, target);
+    assert.equal(target.signal.aborted, false);
+    source.abort("later");
+    assert.equal(target.signal.aborted, true);
+    assert.equal(target.signal.reason, "later");
+  });
+
+  test("cleanup quita el listener: abortar la fuente después ya no aborta el destino", () => {
+    const source = new AbortController();
+    const target = new AbortController();
+    const cleanup = linkAbort(source.signal, target);
+    cleanup();
+    source.abort();
+    assert.equal(target.signal.aborted, false);
+  });
+
+  test("cleanup sobre una señal ya abortada no falla", () => {
+    const source = new AbortController();
+    source.abort();
+    assert.doesNotThrow(linkAbort(source.signal, new AbortController()));
   });
 });
 
@@ -317,18 +362,19 @@ describe("cancelar al desconectar", () => {
     assert.ok(Date.now() - started < 2000);
   });
 
-  test("ya desconectado antes de empezar: no arranca", async () => {
+  test("withAnalysisDeadline con señal pre-abortada rechaza sin ejecutar run", async () => {
     const client = new AbortController();
     client.abort();
-    let ran = false;
+    let called = false;
     await assert.rejects(
       withAnalysisDeadline(async () => {
-        await new Promise((r) => setTimeout(r, 50));
-        ran = true;
+        called = true;
       }, 30_000, client.signal),
       AnalysisCancelledError
     );
-    assert.equal(ran, false);
+    // The old code rejected right away but still started run in the background.
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(called, false);
   });
 
   test("al cancelar se cierra el navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, async () => {

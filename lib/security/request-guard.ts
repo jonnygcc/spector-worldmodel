@@ -64,6 +64,18 @@ export function checkApiRequest(headers: HeaderReader): GuardResult {
   return { ok: true };
 }
 
+// An already-aborted signal never fires "abort", and request.signal arrives
+// aborted if the client left while the route was still validating.
+export function linkAbort(source: AbortSignal, target: AbortController): () => void {
+  if (source.aborted) {
+    target.abort(source.reason);
+    return () => {};
+  }
+  const onAbort = () => target.abort(source.reason);
+  source.addEventListener("abort", onAbort, { once: true });
+  return () => source.removeEventListener("abort", onAbort);
+}
+
 // Cuerpo con tope: primero Content-Length, después el texto real.
 export async function readBody(
   request: { headers: HeaderReader; text(): Promise<string> },
