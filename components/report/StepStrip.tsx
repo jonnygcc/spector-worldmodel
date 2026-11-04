@@ -73,7 +73,6 @@ function Thumb({
   label: string;
   onOpen: () => void;
 }) {
-  // Solid neutral-200 border, predicted steps included; danger when the step failed.
   const border = failed ? "border-danger" : "border-neutral-200";
 
   return (

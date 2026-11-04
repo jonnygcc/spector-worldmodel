@@ -4,7 +4,6 @@ import type { Route, Step } from "./sample";
 
 export const pathLength = (steps: Step[]) => steps.length;
 
-// Step number within the path ("01", "02"…).
 export const pathNumber = (index: number) => String(index + 1).padStart(2, "0");
 
 // Marks unreached steps so the timeline turns gray exactly where the route stopped; the failed

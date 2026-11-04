@@ -64,7 +64,6 @@ async function dreamSingleRoute(
     // Steps with an invalid type, key or element are dropped (step-guard).
     const steps = sanitizeSteps(parsed.steps, MAX_STEPS_PER_ROUTE);
 
-    // Step 1 must use the real entry point.
     if (steps.length > 0) {
       steps[0] = { ...steps[0], targetElement: entry.entryPoint, targetType: entry.entryType };
     }

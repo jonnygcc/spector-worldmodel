@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import StageList from "@/components/loading/StageList";
 import { STAGE_IDS, type StageId } from "@/components/loading/stages";
@@ -9,6 +10,8 @@ export default function Loading({
 }: {
   searchParams: Promise<{ stage?: string }>;
 }) {
+  // Sample data: in production a user typing this URL would see a fake analysis in progress.
+  if (process.env.NODE_ENV === "production") notFound();
   return (
     <section className="flex flex-1 flex-col items-center justify-center px-16 py-48 lg:flex-none lg:justify-start lg:px-24 lg:py-140">
       <div className="flex w-full max-w-narrow justify-center">

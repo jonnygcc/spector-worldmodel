@@ -31,7 +31,7 @@ async function rejects(url, policy = PUBLIC_DNS) {
   });
 }
 
-describe("esquemas", () => {
+describe("schemes", () => {
   for (const url of [
     "file:///home/user/app/.env.local",
     "file:///C:/app/.env.local",
@@ -44,15 +44,15 @@ describe("esquemas", () => {
     "chrome://settings",
     "not a url",
   ]) {
-    test(`rechaza ${url}`, () => rejects(url));
+    test(`rejects ${url}`, () => rejects(url));
   }
-  test("acepta http y https públicos", async () => {
+  test("accepts public http and https", async () => {
     await assertAllowedUrl("http://example.com/", PUBLIC_DNS);
     await assertAllowedUrl("https://example.com/path?q=1", PUBLIC_DNS);
   });
 });
 
-describe("nombres locales", () => {
+describe("local names", () => {
   for (const url of [
     "http://localhost/",
     "http://LOCALHOST./",
@@ -61,11 +61,11 @@ describe("nombres locales", () => {
     "http://metadata.google.internal/",
     "http://api.corp.internal/",
   ]) {
-    test(`rechaza ${url}`, () => rejects(url));
+    test(`rejects ${url}`, () => rejects(url));
   }
 });
 
-describe("rangos privados y especiales", () => {
+describe("private and special ranges", () => {
   for (const url of [
     "http://127.0.0.1/",
     "http://127.8.9.10/",
@@ -89,9 +89,9 @@ describe("rangos privados y especiales", () => {
     "http://[fd00::1]/",
     "http://[fe80::1]/",
   ]) {
-    test(`rechaza ${url}`, () => rejects(url));
+    test(`rejects ${url}`, () => rejects(url));
   }
-  test("acepta los vecinos públicos de los rangos", () => {
+  test("accepts the public neighbors of the ranges", () => {
     assert.equal(isBlockedAddress("172.15.255.255"), false);
     assert.equal(isBlockedAddress("172.32.0.1"), false);
     assert.equal(isBlockedAddress("11.0.0.1"), false);
@@ -100,7 +100,7 @@ describe("rangos privados y especiales", () => {
   });
 });
 
-describe("DNS: se valida la IP resuelta, no la cadena", () => {
+describe("DNS: the resolved IP is validated, not the string", () => {
   const dns = fakeDns({
     "evil.example": ["127.0.0.1"],
     "meta.example": ["169.254.169.254"],
@@ -114,20 +114,20 @@ describe("DNS: se valida la IP resuelta, no la cadena", () => {
     "http://v6.example/",
     "http://does-not-exist.example/", // doesn't resolve: same rejection
   ]) {
-    test(`rechaza ${url}`, () => rejects(url, dns));
+    test(`rejects ${url}`, () => rejects(url, dns));
   }
 });
 
-describe("puertos", () => {
+describe("ports", () => {
   for (const url of [
     "http://example.com:8080/",
     "http://example.com:22/",
     "https://example.com:8443/",
     "http://example.com:6379/",
   ]) {
-    test(`rechaza ${url}`, () => rejects(url));
+    test(`rejects ${url}`, () => rejects(url));
   }
-  test("acepta 80 y 443 explícitos", async () => {
+  test("accepts explicit 80 and 443", async () => {
     await assertAllowedUrl("http://example.com:80/", PUBLIC_DNS);
     await assertAllowedUrl("https://example.com:443/", PUBLIC_DNS);
   });
@@ -137,7 +137,7 @@ describe("puertos", () => {
 // The "public" server is an explicit policy exception (its port only); the "internal" one counts hits and must stay at 0.
 const CHROMIUM = resolveChromiumPath();
 
-describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
+describe("browser", { skip: !fs.existsSync(CHROMIUM) && "Chromium is not installed" }, () => {
   let publicServer, internalServer, publicPort, internalPort, policy, browser;
   let internalHits = 0;
 
@@ -195,12 +195,12 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     }
   };
 
-  test("control: el sitio público carga a través del proxy", async () => {
+  test("control: the public site loads through the proxy", async () => {
     assert.match(await open("/ok"), /PUBLIC-OK/);
   });
 
   for (const path of ["/redirect-ip", "/redirect-name", "/redirect-localhost"]) {
-    test(`redirección a un host interno (${path}) queda bloqueada`, async () => {
+    test(`a redirect to an internal host (${path}) is blocked`, async () => {
       await assert.rejects(open(path), (error) => {
         assert.ok(error instanceof UrlNotAllowedError, String(error));
         assert.equal(error.message, URL_NOT_ALLOWED);
@@ -210,7 +210,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     });
   }
 
-  test("redirección a file: no lee el archivo", async () => {
+  test("a redirect to file: doesn't read the file", async () => {
     let content = "";
     try {
       content = await open("/redirect-file");
@@ -220,12 +220,12 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     assert.doesNotMatch(content, /\[fonts\]|for 16-bit app support/i);
   });
 
-  test("iframes e imágenes hacia hosts internos no se cargan", async () => {
+  test("iframes and images pointing at internal hosts don't load", async () => {
     assert.match(await open("/frame"), /FRAME-PAGE/);
     assert.equal(internalHits, 0);
   });
 
-  test("navegar fuera de un navegador vigilado falla cerrado", async () => {
+  test("navigating outside a guarded browser fails closed", async () => {
     const { chromium } = await import("playwright-core");
     const unguarded = await chromium.launch({ executablePath: CHROMIUM, headless: true });
     try {

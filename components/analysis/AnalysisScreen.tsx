@@ -119,7 +119,6 @@ export default function AnalysisScreen() {
         signal: controller.signal,
       });
 
-      // Rejected before starting (validation, origin, rate limit).
       if (!response.ok || !response.body) {
         const body = (await response.json().catch(() => null)) as {
           error?: string;

@@ -97,7 +97,6 @@ export default function Tooltip({
     });
   }, [mounted, placement]);
 
-  // While open: Escape, an outside tap, scroll or resize close it.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {

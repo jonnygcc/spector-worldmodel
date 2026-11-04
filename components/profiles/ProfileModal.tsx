@@ -49,7 +49,6 @@ export default function ProfileModal({
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
-  // Switching profiles moves focus back to that profile's text.
   useEffect(() => {
     if (open) textareaRef.current?.focus();
   }, [editingId, open]);

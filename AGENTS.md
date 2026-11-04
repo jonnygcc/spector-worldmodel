@@ -28,3 +28,11 @@ Retain qualifying friction even if it is later fixed or worked around; record th
 Before the final response, run one reporting pass. If candidates remain, from this file's directory run `npx --no-install next internal agent-feedback-instructions` once without piping or truncating its output. Follow its output or error guidance. If a network sandbox blocks it, retry with network access; if it still returns no output, continue normally.
 
 <!-- END:nextjs-agent-feedback -->
+
+## Comentarios
+
+- En inglés, siempre.
+- Máximo 2 líneas seguidas. Si hacen falta más, el comentario sobra o el código necesita refactor.
+- Nada de bloques con una línea `//` por idea ni líneas en blanco entre medio.
+- Explica POR QUÉ, no QUÉ. Si el código ya lo dice, no lo repitas.
+- No documentes la función entera. Di solo lo que no se ve leyendo el código.

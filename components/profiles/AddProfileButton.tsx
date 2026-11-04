@@ -1,6 +1,5 @@
 import { Plus } from "lucide-react";
 
-// Same hover pattern as the model trigger and the goal chips.
 export default function AddProfileButton({
   onClick,
   disabled = false,

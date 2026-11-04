@@ -75,7 +75,6 @@ export default function ModifierRow({
   }
 
   return (
-    // Mobile: one row per control. From lg, a single line with the model on the right.
     <div className="flex flex-col items-start gap-8 px-12 lg:flex-row lg:flex-wrap lg:items-center">
       <ModeSwitch value={mode} onChange={setMode} />
 

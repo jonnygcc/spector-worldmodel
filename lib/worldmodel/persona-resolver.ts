@@ -62,7 +62,6 @@ export async function resolvePersona(
     };
   }
 
-  // Automatic mode: the archetype that best fits the goal.
   return {
     mode: "automatic",
     resolved: pickAutoPersona(goalId),

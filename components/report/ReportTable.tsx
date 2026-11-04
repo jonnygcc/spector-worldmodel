@@ -28,7 +28,6 @@ const FRICTION_LABEL = "Friction (lower is better)";
 const NUMBER =
   "font-heading text-body leading-sm tracking-wide tabular-nums text-neutral-800";
 
-// Columns that only exist on desktop (lg, from 1024px).
 const DESKTOP = "hidden lg:block";
 
 // Mobile metric: label above the value (Phone/Report frame).

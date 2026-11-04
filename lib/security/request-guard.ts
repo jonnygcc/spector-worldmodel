@@ -61,16 +61,35 @@ export function linkAbort(source: AbortSignal, target: AbortController): () => v
   return () => source.removeEventListener("abort", onAbort);
 }
 
-// Capped body: Content-Length first, then the actual text.
+type BodyResult = { ok: true; text: string } | { ok: false; status: number; error: string };
+const TOO_LARGE: BodyResult = { ok: false, status: 413, error: "The request is too large." };
+
+// Reads the stream chunk by chunk: request.text() buffered a chunked body (no Content-Length)
+// whole before the cap could apply.
 export async function readBody(
-  request: { headers: HeaderReader; text(): Promise<string> },
+  request: { headers: HeaderReader; body: ReadableStream<Uint8Array> | null },
   maxChars: number
-): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
+): Promise<BodyResult> {
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > maxChars * 4) {
-    return { ok: false, status: 413, error: "The request is too large." };
+  if (Number.isFinite(declared) && declared > maxChars * 4) return TOO_LARGE;
+  if (!request.body) return { ok: true, text: "" };
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.length > maxChars) {
+        await reader.cancel().catch(() => {});
+        return TOO_LARGE;
+      }
+    }
+    text += decoder.decode();
+  } catch {
+    return { ok: true, text: "" };
   }
-  const text = await request.text().catch(() => "");
-  if (text.length > maxChars) return { ok: false, status: 413, error: "The request is too large." };
-  return { ok: true, text };
+  return text.length > maxChars ? TOO_LARGE : { ok: true, text };
 }

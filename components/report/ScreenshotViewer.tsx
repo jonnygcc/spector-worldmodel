@@ -6,7 +6,6 @@ import { ARROW as STRIP_ARROW } from "./arrow";
 import StepNumber from "./StepNumber";
 import type { Step } from "./sample";
 
-// The sequence's own arrows, vertically centered over the screenshot.
 const ARROW = `absolute top-1/2 -translate-y-1/2 ${STRIP_ARROW}`;
 
 // ← and → are listened on the document so they keep working when the clicked arrow disappears
@@ -20,7 +19,6 @@ export default function ScreenshotViewer({
 }: {
   steps: Step[];
   simulated?: boolean;
-  // Open step (index into `steps`), or null when closed.
   index: number | null;
   onChange: (index: number) => void;
   onClose: () => void;

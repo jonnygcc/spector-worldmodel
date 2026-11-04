@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import ReportHeader from "@/components/report/ReportHeader";
 import ReportSection from "@/components/report/ReportSection";
 import ReportTable from "@/components/report/ReportTable";
@@ -7,6 +8,8 @@ import { REPORT, ROUTES } from "@/components/report/sample";
 
 // Preview route with fixed sample data (see app/loading/page.tsx).
 export default function ReportPreview() {
+  // Sample data: in production a user typing this URL would see an invented report.
+  if (process.env.NODE_ENV === "production") notFound();
   return (
     <section className="flex flex-col items-start gap-24 px-16 pb-48 pt-32 lg:gap-32 lg:px-24 lg:py-64">
       <ReportHeader

@@ -306,8 +306,8 @@ async function verifyRoute(
       console.log(`  [${route.id}] plan ${planNumber} step ${i + 1}: "${step.targetElement}"`);
       const urlBefore = page.url();
 
-      // 1. Pre-check: the best candidate must clear the strict threshold with no close rivals; otherwise
-      //    re-plan without clicking anything.
+      // Pre-check: the best candidate must clear the strict threshold with no close rivals; otherwise
+      // re-plan without clicking anything.
       let element: Locator | null = null;
       let found: RouteStepResult["found"] = null;
       if (needsElement(step)) {
@@ -329,21 +329,18 @@ async function verifyRoute(
         element = page.locator(best.selector).first();
       }
 
-      // 2. Action.
       const textBefore = await pageText(page);
       const done = await act(page, step, element);
       const state = await captureState(page);
 
-      // 3. Left the analyzed site? A page link can't take the agent to another domain and still count as
-      //    this site's flow.
+      // Left the analyzed site? A page link can't take the agent to another domain and still count as
+      // this site's flow.
       const offSite = sameSite(siteUrl, page.url())
         ? null
         : `Left the analyzed site for ${siteHost(page.url()) ?? "another page"}.`;
 
-      // 4. Did the site stop it?
       const block = offSite ? null : await detectBlock(page, goal);
 
-      // 5. Expectation.
       const { check, checks } = await checkExpectation(page, step, urlBefore, textBefore, done.stateChanged, plan[i + 1]);
       const whatHappened = offSite
         ? offSite

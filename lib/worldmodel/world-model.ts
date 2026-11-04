@@ -256,7 +256,6 @@ function kindOf(value: unknown, status: WMScenario["status"]): WMKind {
   );
 }
 
-// A valid scenario, or why it was dropped (for the log).
 function toScenario(raw: RawScenario, goalWords: string[]): WMScenario | string {
   const name = typeof raw.user === "string" ? shorten(raw.user, MAX_NAME) : "";
   if (!name) return "no name";
@@ -370,7 +369,6 @@ export function parseScenarios(text: string, goal: string): WMScenario[] {
 }
 
 // ---- Orchestrator ----
-
 
 // A 429 in any attempt wins over the timeout: if quota ran out, that's what to say, even if time
 // ran out later.

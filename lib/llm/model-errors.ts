@@ -3,7 +3,6 @@
 
 export type FailureKind = "quota" | "timeout" | "overloaded" | "site" | "not-allowed" | "busy" | "cancelled" | "unknown";
 
-// What the client sees when something fails.
 export interface Failure {
   kind: FailureKind;
   message: string;

@@ -10,6 +10,7 @@ import { chromium } from "playwright-core";
 import { gotoAllowed, launchGuardedChromium } from "../lib/security/url-guard.ts";
 import {
   AnalysisTimeoutError,
+  BROWSER_CLOSE_TIMEOUT_MS,
   evaluateWithTimeout,
   MAX_NAVIGATIONS_PER_PAGE,
   newSandboxedPage,
@@ -22,8 +23,8 @@ import {
 const ROOT = path.resolve(import.meta.dirname, "..");
 
 // ---- Chromium path ----
-describe("ruta de Chromium", () => {
-  test("sin variable, la de playwright-core", () => {
+describe("Chromium path", () => {
+  test("without the variable, playwright-core's", () => {
     const saved = process.env.SPECTOR_CHROMIUM_PATH;
     delete process.env.SPECTOR_CHROMIUM_PATH;
     try {
@@ -33,7 +34,7 @@ describe("ruta de Chromium", () => {
     }
   });
 
-  test("SPECTOR_CHROMIUM_PATH manda", () => {
+  test("SPECTOR_CHROMIUM_PATH wins", () => {
     const saved = process.env.SPECTOR_CHROMIUM_PATH;
     process.env.SPECTOR_CHROMIUM_PATH = "/opt/chromium/chrome";
     try {
@@ -44,7 +45,7 @@ describe("ruta de Chromium", () => {
     }
   });
 
-  test("ninguna ruta de usuario de Windows en el código ni en los tests", () => {
+  test("no Windows user path in the code or the tests", () => {
     const files = [];
     const walk = (dir) => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -84,7 +85,7 @@ async function waitFor(check, ms = 8000) {
   return check();
 }
 
-describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
+describe("browser", { skip: !fs.existsSync(CHROMIUM) && "Chromium is not installed" }, () => {
   let server, port, policy, browser;
   const marker = `--spector-test-run=${randomUUID()}`;
 
@@ -134,23 +135,23 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     return page;
   };
 
-  test("descargas: se cancelan", async () => {
+  test("downloads are cancelled", async () => {
     const page = await open("/download-page");
     const [download] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }), page.click("#d")]);
     assert.notEqual(await download.failure(), null);
     await page.close();
   });
 
-  test("popups y window.open: se cierran solos", async () => {
+  test("popups and window.open close by themselves", async () => {
     const page = await open("/popup");
     const context = page.context();
     const onlyOne = await waitFor(() => context.pages().length === 1, 3000);
-    assert.ok(onlyOne, `páginas abiertas: ${context.pages().length}`);
+    assert.ok(onlyOne, `open pages: ${context.pages().length}`);
     assert.match(await page.content(), /POPUP-PAGE/);
     await page.close();
   });
 
-  test("alert, confirm y prompt: se descartan y la página sigue", async () => {
+  test("alert, confirm and prompt are dismissed and the page goes on", async () => {
     const page = await open("/dialogs");
     assert.equal(await evaluateWithTimeout(page, "document.title", 3000), "after-dialogs");
     assert.equal(await page.evaluate("window.__confirm"), false);
@@ -158,7 +159,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     await page.close();
   });
 
-  test("permisos: ubicación, cámara, micrófono y notificaciones denegados", async () => {
+  test("permissions: location, camera, microphone and notifications denied", async () => {
     const page = await open("/ok");
     const result = await evaluateWithTimeout(
       page,
@@ -180,7 +181,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
       })()`,
       8000
     );
-    assert.equal(result.secure, true, "el origen de prueba debe ser un contexto seguro");
+    assert.equal(result.secure, true, "the test origin must be a secure context");
     assert.equal(result.geo, "error 1"); // PERMISSION_DENIED
     assert.notEqual(result.camera, "granted");
     assert.notEqual(result.microphone, "granted");
@@ -188,12 +189,12 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     await page.close();
   });
 
-  test(`una página que navega sola sin fin se cierra (tope ${MAX_NAVIGATIONS_PER_PAGE})`, async () => {
+  test(`a page that navigates by itself forever is closed (cap ${MAX_NAVIGATIONS_PER_PAGE})`, async () => {
     const page = await open("/loop");
-    assert.ok(await waitFor(() => page.isClosed(), 15000), "la página sigue abierta");
+    assert.ok(await waitFor(() => page.isClosed(), 15000), "the page is still open");
   });
 
-  test("un script colgado (while true) no deja esperando: evaluate con timeout", async () => {
+  test("a hung script (while true) doesn't block: evaluate with a timeout", async () => {
     const page = await open("/freeze");
     await new Promise((r) => setTimeout(r, 300));
     const started = Date.now();
@@ -202,7 +203,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     await page.close();
   });
 
-  test("aislamiento: cada página en un contexto nuevo, sin cookies ni storage heredados", async () => {
+  test("isolation: each page in a fresh context, no inherited cookies or storage", async () => {
     const first = await open("/storage");
     await first.evaluate("document.cookie = 'spector=1; path=/'; localStorage.setItem('spector', '1'); sessionStorage.setItem('spector', '1');");
     assert.match(await first.evaluate("document.cookie"), /spector=1/);
@@ -215,7 +216,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
     await second.close();
   });
 
-  test("cerrar la página cierra su contexto", async () => {
+  test("closing the page closes its context", async () => {
     const page = await open("/ok");
     const context = page.context();
     await page.close();
@@ -224,7 +225,7 @@ describe("navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está ins
 });
 
 // ---- Guaranteed cleanup ----
-describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, () => {
+describe("guaranteed cleanup", { skip: !fs.existsSync(CHROMIUM) && "Chromium is not installed" }, () => {
   let server, port, policy;
 
   before(async () => {
@@ -253,7 +254,7 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
 
   const noProcessLeft = (marker) => waitFor(() => chromiumProcessesWith(marker) === 0, 10000);
 
-  test("camino normal: al terminar el análisis no queda ningún Chromium", async () => {
+  test("normal path: no Chromium left after the analysis", async () => {
     const marker = `--spector-test-run=${randomUUID()}`;
     let seen = 0;
     await withAnalysisDeadline(async () => {
@@ -263,11 +264,11 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
       await gotoAllowed(page, `http://127.0.0.1:${port}/ok`, {}, policy);
       // Deliberately not closed: the session closes it.
     }, 30000);
-    assert.ok(seen >= 1, "el test debe ver el proceso mientras corre");
-    assert.ok(await noProcessLeft(marker), "quedó un Chromium abierto");
+    assert.ok(seen >= 1, "the test must see the process while it runs");
+    assert.ok(await noProcessLeft(marker), "a Chromium was left open");
   });
 
-  test("camino de error: si el análisis falla, se cierra igual", async () => {
+  test("error path: closed even when the analysis fails", async () => {
     const marker = `--spector-test-run=${randomUUID()}`;
     await assert.rejects(
       withAnalysisDeadline(async () => {
@@ -276,10 +277,10 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
       }, 30000),
       /boom/
     );
-    assert.ok(await noProcessLeft(marker), "quedó un Chromium abierto");
+    assert.ok(await noProcessLeft(marker), "a Chromium was left open");
   });
 
-  test("timeout: una página colgada no deja el análisis esperando, y Chromium se cierra", async () => {
+  test("timeout: a hung page doesn't keep the analysis waiting, and Chromium closes", async () => {
     const marker = `--spector-test-run=${randomUUID()}`;
     const started = Date.now();
     await assert.rejects(
@@ -293,11 +294,11 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
       }, 3000),
       (error) => error instanceof AnalysisTimeoutError
     );
-    assert.ok(Date.now() - started < 8000, `tardó ${Date.now() - started} ms`);
-    assert.ok(await noProcessLeft(marker), "quedó un Chromium abierto");
+    assert.ok(Date.now() - started < 8000, `took ${Date.now() - started} ms`);
+    assert.ok(await noProcessLeft(marker), "a Chromium was left open");
   });
 
-  test("un navegador lanzado después del plazo se cierra y falla", async () => {
+  test("a browser launched after the deadline is closed and fails", async () => {
     const marker = `--spector-test-run=${randomUUID()}`;
     await assert.rejects(
       withAnalysisDeadline(async () => {
@@ -315,6 +316,24 @@ describe("cierre garantizado", { skip: !fs.existsSync(CHROMIUM) && "Chromium no 
       AnalysisTimeoutError
     );
     await new Promise((r) => setTimeout(r, 1500));
-    assert.ok(await noProcessLeft(marker), "quedó un Chromium abierto");
+    assert.ok(await noProcessLeft(marker), "a Chromium was left open");
+  });
+});
+
+// ---- Close timeout ----
+describe("close timeout", () => {
+  // Stands in for a hung Chromium: close() never settles.
+  const hungBrowser = () => ({ close: () => new Promise(() => {}), on: () => {} });
+
+  test(`a browser whose close() never settles doesn't hang the analysis past ${BROWSER_CLOSE_TIMEOUT_MS / 1000} s`, { timeout: BROWSER_CLOSE_TIMEOUT_MS + 5000 }, async () => {
+    const started = Date.now();
+    const result = await withAnalysisDeadline(async () => {
+      await trackBrowser(hungBrowser());
+      return "done";
+    }, 30_000);
+    const elapsed = Date.now() - started;
+    assert.equal(result, "done");
+    assert.ok(elapsed >= BROWSER_CLOSE_TIMEOUT_MS - 100, `settled too early: ${elapsed} ms`);
+    assert.ok(elapsed < BROWSER_CLOSE_TIMEOUT_MS + 2000, `took ${elapsed} ms`);
   });
 });

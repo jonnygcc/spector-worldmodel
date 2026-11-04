@@ -175,7 +175,6 @@ export interface RouteStep {
   expectedSignals?: string[];
 }
 
-// Result of checking a step's expectation against the real page.
 export type StepCheck = "match" | "partial" | "diverged";
 
 // Predicted vs. actual for an executed (or attempted) step.
@@ -190,7 +189,6 @@ export interface RouteStepResult {
   rivals?: { label: string; score: number }[];
   executed: boolean;
   stateChanged: boolean;
-  // Post-action checks and their verdict.
   check: StepCheck;
   checks: {
     urlChanged: boolean;

@@ -6,7 +6,6 @@ import { chromium, type Browser, type Page } from "playwright-core";
 
 // Page load: goto and the navigations a click triggers.
 export const NAVIGATION_TIMEOUT_MS = 30_000;
-// Playwright actions (click, fill, screenshot…).
 export const ACTION_TIMEOUT_MS = 10_000;
 // page.evaluate has no timeout of its own: a page running `while (true) {}` would hang it forever.
 export const EVALUATE_TIMEOUT_MS = 10_000;
@@ -58,7 +57,6 @@ export async function newSandboxedPage(browser: Browser): Promise<Page> {
   return page;
 }
 
-// Any Playwright promise, with a time cap.
 export async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -74,7 +72,6 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, message: s
   }
 }
 
-// page.evaluate with a time cap.
 export function evaluateWithTimeout<T>(page: Page, script: string, ms = EVALUATE_TIMEOUT_MS): Promise<T> {
   return withTimeout(page.evaluate(script) as Promise<T>, ms, `The page did not respond within ${ms / 1000} seconds.`);
 }
@@ -103,8 +100,15 @@ export class AnalysisCancelledError extends Error {
   }
 }
 
+export const BROWSER_CLOSE_TIMEOUT_MS = 10_000;
+
+// browser.close() has no timeout of its own: a hung Chromium would hang the route's slot release with it.
 const closeAll = (session: Session) =>
-  Promise.all([...session.browsers].map((browser) => browser.close().catch(() => {})));
+  withTimeout(
+    Promise.all([...session.browsers].map((browser) => browser.close().catch(() => {}))),
+    BROWSER_CLOSE_TIMEOUT_MS,
+    `Closing the browser took longer than ${BROWSER_CLOSE_TIMEOUT_MS / 1000} seconds.`
+  ).catch((error: Error) => console.warn(`[Browser] ${error.message}`));
 
 // The running analysis's AbortSignal, for model calls.
 export const currentAnalysisSignal = (): AbortSignal | undefined => sessions.getStore()?.controller.signal;

@@ -18,7 +18,6 @@ export default function CommandBar({
 }: {
   onSubmit: (submission: BarSubmission) => void;
   pending?: boolean;
-  // Each change focuses the URL field ("Edit URL").
   focusSignal?: number;
 }) {
   const [url, setUrl] = useState("");

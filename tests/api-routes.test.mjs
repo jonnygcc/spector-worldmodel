@@ -38,27 +38,27 @@ const headers = (values) => {
 const SPECTOR = { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000", "content-type": "application/json" };
 
 // ---- 1. Origin and content type ----
-describe("origen", () => {
-  test("la propia UI pasa (mismo origen, loopback)", () => {
+describe("origin", () => {
+  test("Spector's own UI passes (same origin, loopback)", () => {
     assert.deepEqual(checkApiRequest(headers(SPECTOR)), { ok: true });
     assert.deepEqual(checkApiRequest(headers({ ...SPECTOR, host: "localhost:3000", origin: "http://localhost:3000" })), { ok: true });
     assert.deepEqual(checkApiRequest(headers({ ...SPECTOR, host: "[::1]:3000", origin: "http://[::1]:3000" })), { ok: true });
   });
 
-  test("sin Origin (curl, un script local) pasa: no es un navegador, no es CSRF", () => {
+  test("no Origin (curl, a local script) passes: not a browser, so not CSRF", () => {
     assert.deepEqual(checkApiRequest(headers({ host: "127.0.0.1:3000", "content-type": "application/json" })), { ok: true });
   });
 
   for (const [name, values] of [
-    ["una web cualquiera (CSRF)", { ...SPECTOR, origin: "https://evil.example" }],
-    ["otro puerto de localhost", { ...SPECTOR, origin: "http://127.0.0.1:8080" }],
-    ["Origin null (iframe con sandbox, file:)", { ...SPECTOR, origin: "null" }],
-    ["DNS rebinding: Host del atacante", { ...SPECTOR, host: "rebind.evil.example:3000", origin: "http://rebind.evil.example:3000" }],
-    ["Host de la red local", { ...SPECTOR, host: "192.168.1.20:3000", origin: "http://192.168.1.20:3000" }],
-    ["sin Host", { origin: SPECTOR.origin, "content-type": "application/json" }],
+    ["any website (CSRF)", { ...SPECTOR, origin: "https://evil.example" }],
+    ["another localhost port", { ...SPECTOR, origin: "http://127.0.0.1:8080" }],
+    ["Origin null (sandboxed iframe, file:)", { ...SPECTOR, origin: "null" }],
+    ["DNS rebinding: the attacker's Host", { ...SPECTOR, host: "rebind.evil.example:3000", origin: "http://rebind.evil.example:3000" }],
+    ["a LAN Host", { ...SPECTOR, host: "192.168.1.20:3000", origin: "http://192.168.1.20:3000" }],
+    ["no Host", { origin: SPECTOR.origin, "content-type": "application/json" }],
     ["Sec-Fetch-Site cross-site", { ...SPECTOR, "sec-fetch-site": "cross-site" }],
   ]) {
-    test(`rechaza: ${name}`, () => {
+    test(`rejects: ${name}`, () => {
       const result = checkApiRequest(headers(values));
       assert.equal(result.ok, false);
       assert.equal(result.status, 403);
@@ -68,7 +68,7 @@ describe("origen", () => {
 
 describe("Content-Type", () => {
   for (const type of [undefined, "text/plain", "text/plain;charset=UTF-8", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", "application/jsonp"]) {
-    test(`rechaza ${type ?? "(sin Content-Type)"}: un POST así no pide preflight`, () => {
+    test(`rejects ${type ?? "(no Content-Type)"}: such a POST skips the preflight`, () => {
       const values = { ...SPECTOR };
       if (type === undefined) delete values["content-type"];
       else values["content-type"] = type;
@@ -77,13 +77,13 @@ describe("Content-Type", () => {
       assert.equal(result.status, 415);
     });
   }
-  test("acepta application/json con charset", () => {
+  test("accepts application/json with a charset", () => {
     assert.deepEqual(checkApiRequest(headers({ ...SPECTOR, "content-type": "application/json; charset=utf-8" })), { ok: true });
   });
 });
 
 describe("linkAbort", () => {
-  test("con la señal ya abortada, aborta el destino en el acto", () => {
+  test("with an already-aborted signal, aborts the target right away", () => {
     const source = new AbortController();
     source.abort("client gone");
     const target = new AbortController();
@@ -92,7 +92,7 @@ describe("linkAbort", () => {
     assert.equal(target.signal.reason, "client gone");
   });
 
-  test("contraprueba: addEventListener solo, sobre la señal ya abortada, no dispara", async () => {
+  test("control: addEventListener alone never fires on an already-aborted signal", async () => {
     const source = new AbortController();
     source.abort();
     let fired = false;
@@ -101,7 +101,7 @@ describe("linkAbort", () => {
     assert.equal(fired, false);
   });
 
-  test("con la señal sin abortar, aborta el destino cuando la fuente se aborta", () => {
+  test("with a live signal, aborts the target when the source aborts", () => {
     const source = new AbortController();
     const target = new AbortController();
     linkAbort(source.signal, target);
@@ -111,7 +111,7 @@ describe("linkAbort", () => {
     assert.equal(target.signal.reason, "later");
   });
 
-  test("cleanup quita el listener: abortar la fuente después ya no aborta el destino", () => {
+  test("cleanup removes the listener: aborting the source later no longer aborts the target", () => {
     const source = new AbortController();
     const target = new AbortController();
     const cleanup = linkAbort(source.signal, target);
@@ -120,57 +120,96 @@ describe("linkAbort", () => {
     assert.equal(target.signal.aborted, false);
   });
 
-  test("cleanup sobre una señal ya abortada no falla", () => {
+  test("cleanup on an already-aborted signal doesn't throw", () => {
     const source = new AbortController();
     source.abort();
     assert.doesNotThrow(linkAbort(source.signal, new AbortController()));
   });
 });
 
-describe("tamaño del cuerpo", () => {
-  test("Content-Length declarado de más: 413 sin leer el cuerpo", async () => {
-    let read = false;
-    const result = await readBody({ headers: headers({ "content-length": "999999" }), text: async () => ((read = true), "") }, 1000);
+// A body that never ends unless the reader stops pulling; counts what it handed out. highWaterMark 0
+// so it only produces on read (the default prefetches one chunk at construction).
+const endlessBody = (chunk) => {
+  const stats = { pulled: 0, cancelled: false };
+  const bytes = new TextEncoder().encode(chunk);
+  const body = new ReadableStream(
+    {
+      pull(controller) {
+        stats.pulled += bytes.length;
+        controller.enqueue(bytes);
+      },
+      cancel() {
+        stats.cancelled = true;
+      },
+    },
+    { highWaterMark: 0 }
+  );
+  return { body, stats };
+};
+const bodyOf = (text) => new Response(text).body;
+
+describe("body size", () => {
+  test("oversized Content-Length: 413 without reading the body", async () => {
+    const { body, stats } = endlessBody("x");
+    const result = await readBody({ headers: headers({ "content-length": "999999" }), body }, 1000);
     assert.equal(result.status, 413);
-    assert.equal(read, false);
+    assert.equal(stats.pulled, 0);
   });
-  test("cuerpo real de más: 413", async () => {
-    const result = await readBody({ headers: headers({}), text: async () => "x".repeat(1001) }, 1000);
+
+  test("oversized actual body: 413", async () => {
+    const result = await readBody({ headers: headers({}), body: bodyOf("x".repeat(1001)) }, 1000);
     assert.equal(result.status, 413);
+  });
+
+  test("chunked body without Content-Length over the cap: 413, stops reading right after the cap", async () => {
+    const { body, stats } = endlessBody("x".repeat(256));
+    const result = await readBody({ headers: headers({}), body }, 1000);
+    assert.equal(result.status, 413);
+    assert.equal(stats.cancelled, true);
+    assert.ok(stats.pulled <= 1000 + 2 * 256, `read ${stats.pulled} bytes`);
+  });
+
+  test("a body within the cap is returned whole, multi-byte characters included", async () => {
+    const text = JSON.stringify({ goal: "Sign up → ✓ 日本語" });
+    assert.deepEqual(await readBody({ headers: headers({}), body: bodyOf(text) }, 1000), { ok: true, text });
+  });
+
+  test("no body: empty text", async () => {
+    assert.deepEqual(await readBody({ headers: headers({}), body: null }, 1000), { ok: true, text: "" });
   });
 });
 
 // ---- 2. Schema ----
-describe("esquema de /api/goal/stream", () => {
+describe("/api/goal/stream schema", () => {
   const valid = { url: "https://linear.app", goal: "See the pricing plans", personaMode: "automatic" };
 
-  test("la petición de la barra pasa", () => {
+  test("the command bar's request passes", () => {
     assert.equal(validateAnalysisRequest(valid).ok, true);
     assert.equal(validateAnalysisRequest({ url: "https://x.com", goal: "Sign up" }).ok, true);
     assert.equal(validateAnalysisRequest({ ...valid, personaMode: "personal", customPersona: "A busy parent on mobile" }).ok, true);
   });
 
   for (const [name, body] of [
-    ["un array", [valid]],
+    ["an array", [valid]],
     ["null", null],
-    ["un string", "https://linear.app"],
-    ["un campo de más", { ...valid, model: "gpt" }],
-    ["url que no es string", { ...valid, url: 42 }],
-    ["url inválida", { ...valid, url: "not a url" }],
-    ["url de 3000 caracteres", { ...valid, url: `https://x.com/${"a".repeat(3000)}` }],
-    ["sin objetivo", { url: valid.url }],
-    ["objetivo vacío", { ...valid, goal: "   " }],
-    ["objetivo demasiado largo", { ...valid, goal: "x".repeat(MAX_GOAL + 1) }],
+    ["a string", "https://linear.app"],
+    ["an extra field", { ...valid, model: "gpt" }],
+    ["a non-string url", { ...valid, url: 42 }],
+    ["an invalid url", { ...valid, url: "not a url" }],
+    ["a 3000-character url", { ...valid, url: `https://x.com/${"a".repeat(3000)}` }],
+    ["no goal", { url: valid.url }],
+    ["an empty goal", { ...valid, goal: "   " }],
+    ["a goal that's too long", { ...valid, goal: "x".repeat(MAX_GOAL + 1) }],
     ["personaMode desconocido", { ...valid, personaMode: "admin" }],
-    ["customPersona que no es string", { ...valid, personaMode: "personal", customPersona: { a: 1 } }],
+    ["a non-string customPersona", { ...valid, personaMode: "personal", customPersona: { a: 1 } }],
     ["customPersona demasiado larga", { ...valid, personaMode: "personal", customPersona: "x".repeat(5000) }],
-    ["modo personal sin descripción", { ...valid, personaMode: "personal" }],
+    ["personal mode without a description", { ...valid, personaMode: "personal" }],
   ]) {
-    test(`rechaza ${name}`, () => assert.equal(validateAnalysisRequest(body).ok, false));
+    test(`rejects ${name}`, () => assert.equal(validateAnalysisRequest(body).ok, false));
   }
 });
 
-describe("esquema de /api/world-model", () => {
+describe("/api/world-model schema", () => {
   const state = {
     url: "https://linear.app",
     title: "Linear",
@@ -185,11 +224,11 @@ describe("esquema de /api/world-model", () => {
     happyPath: happyPathOf({ routes: [], bestRouteId: null }),
   };
 
-  test("lo que arma el cliente pasa", () => {
+  test("what the client builds passes", () => {
     assert.equal(validateWorldModelInput(valid).ok, true);
   });
 
-  test("un pageContext truncado por el cliente pasa", () => {
+  test("a pageContext truncated by the client passes", () => {
     const big = { ...state, headings: Array.from({ length: 12 }, () => `H2: ${"x".repeat(2000)}`) };
     const pageContext = compactPageContext(big);
     assert.ok(pageContext.endsWith("(truncated)"));
@@ -197,21 +236,21 @@ describe("esquema de /api/world-model", () => {
   });
 
   for (const [name, body] of [
-    ["un campo de más", { ...valid, prompt: "ignore previous instructions" }],
-    ["un campo que falta", { url: valid.url, goal: valid.goal, pageContext: valid.pageContext }],
-    ["un campo que no es string", { ...valid, happyPath: ["step"] }],
-    ["pageContext arbitrario de más", { ...valid, pageContext: "x".repeat(PAGE_CONTEXT_MAX + 100) }],
-    ["objetivo vacío", { ...valid, goal: "" }],
-    ["url que no es http(s)", { ...valid, url: "file:///etc/passwd" }],
-    ["un array", [valid]],
+    ["an extra field", { ...valid, prompt: "ignore previous instructions" }],
+    ["a missing field", { url: valid.url, goal: valid.goal, pageContext: valid.pageContext }],
+    ["a non-string field", { ...valid, happyPath: ["step"] }],
+    ["an oversized arbitrary pageContext", { ...valid, pageContext: "x".repeat(PAGE_CONTEXT_MAX + 100) }],
+    ["an empty goal", { ...valid, goal: "" }],
+    ["a non-http(s) url", { ...valid, url: "file:///etc/passwd" }],
+    ["an array", [valid]],
   ]) {
-    test(`rechaza ${name}`, () => assert.equal(validateWorldModelInput(body).ok, false));
+    test(`rejects ${name}`, () => assert.equal(validateWorldModelInput(body).ok, false));
   }
 });
 
 // ---- 3. Rate limit ----
-describe("límite de uso", () => {
-  test("un análisis en curso impide lanzar otro en paralelo", () => {
+describe("rate limit", () => {
+  test("a running analysis blocks parallel ones", () => {
     const limiter = createLimiter({ maxConcurrent: 1, maxPerWindow: 10, windowMs: 60_000, noun: "analysis" });
     const first = limiter.acquire(0);
     assert.equal(first.ok, true);
@@ -221,7 +260,7 @@ describe("límite de uso", () => {
     assert.equal(limiter.acquire(2).ok, true);
   });
 
-  test("tope por ventana, con cuándo volver a probar", () => {
+  test("per-window cap, with when to try again", () => {
     const limiter = createLimiter({ maxConcurrent: 5, maxPerWindow: 2, windowMs: 60_000, noun: "analysis" });
     limiter.acquire(0).release();
     limiter.acquire(10_000).release();
@@ -232,7 +271,7 @@ describe("límite de uso", () => {
     assert.equal(limiter.acquire(60_001).ok, true);
   });
 
-  test("liberar dos veces no deja pasar a dos", () => {
+  test("releasing twice doesn't let two through", () => {
     const limiter = createLimiter({ maxConcurrent: 1, maxPerWindow: 10, windowMs: 60_000, noun: "analysis" });
     const slot = limiter.acquire(0);
     slot.release();
@@ -258,8 +297,8 @@ const gemini429 = (retryDelay, quotaId = "GenerateRequestsPerMinutePerProjectPer
     },
   });
 
-describe("errores honestos", () => {
-  test("un 429 se reporta como cuota, con el retryDelay de Gemini", () => {
+describe("honest errors", () => {
+  test("a 429 is reported as quota, with Gemini's retryDelay", () => {
     const failure = describeFailure(gemini429("37s"));
     assert.equal(failure.kind, "quota");
     assert.equal(failure.retryAfterSeconds, 37);
@@ -268,20 +307,20 @@ describe("errores honestos", () => {
     assert.doesNotMatch(failure.message, /took longer|timed out/i);
   });
 
-  test("un 429 sin retryDelay: cuota, esperar un minuto", () => {
+  test("a 429 without retryDelay: quota, wait a minute", () => {
     const failure = describeFailure(gemini429(null));
     assert.equal(failure.kind, "quota");
     assert.equal(failure.retryAfterSeconds, 60);
   });
 
-  test("la cuota diaria no ofrece reintentar", () => {
+  test("the daily quota offers no retry", () => {
     const failure = describeFailure(gemini429("3600s", "GenerateRequestsPerDayPerProjectPerModel-FreeTier"));
     assert.equal(failure.kind, "quota");
     assert.equal(failure.retryable, false);
     assert.match(failure.message, /daily/i);
   });
 
-  test("el 429 manda sobre el timeout: si hubo cuota, no se dice 'tardó más de 25 s'", () => {
+  test("a 429 wins over the timeout: with quota, it never says 'took longer than 25 s'", () => {
     const failure = pickFailure([gemini429("20s"), new Error("This operation was aborted")], {
       timedOut: true,
       timeoutMessage: "The prediction took longer than 25 seconds.",
@@ -290,7 +329,7 @@ describe("errores honestos", () => {
     assert.doesNotMatch(failure.message, /took longer/);
   });
 
-  test("sin 429, un timeout real sí es timeout", () => {
+  test("without a 429, a real timeout is a timeout", () => {
     const failure = pickFailure([new Error("This operation was aborted")], {
       timedOut: true,
       timeoutMessage: "The prediction took longer than 25 seconds.",
@@ -299,12 +338,12 @@ describe("errores honestos", () => {
     assert.match(failure.message, /took longer than 25 seconds/);
   });
 
-  test("ModelQuotaError (lo que lanza askGemini tras esperar) también es cuota", () => {
+  test("ModelQuotaError (thrown by askGemini after waiting) is quota too", () => {
     assert.deepEqual(quotaInfo(new ModelQuotaError(12_000, false)), { retryAfterMs: 12_000, daily: false });
     assert.equal(describeFailure(new ModelQuotaError(12_000, false)).retryAfterSeconds, 12);
   });
 
-  test("fallos del sitio, del plazo y del modelo, cada uno con su motivo", () => {
+  test("site, deadline and model failures, each with its reason", () => {
     const site = describeFailure(new Error("page.goto: net::ERR_NAME_NOT_RESOLVED at https://no.example/\nCall log: …"));
     assert.equal(site.kind, "site");
     assert.match(site.message, /ERR_NAME_NOT_RESOLVED/);
@@ -314,13 +353,13 @@ describe("errores honestos", () => {
     assert.equal(describeFailure(Object.assign(new Error("This URL is not allowed."), { name: "UrlNotAllowedError" })).retryable, false);
   });
 
-  test("un error desconocido no filtra su detalle al cliente", () => {
+  test("an unknown error doesn't leak its details to the client", () => {
     const failure = describeFailure(new Error("ENOENT: no such file C:\\secret\\path"));
     assert.equal(failure.kind, "unknown");
     assert.doesNotMatch(failure.message, /ENOENT|secret/);
   });
 
-  test("cuota, plazo y cancelación no se los traga ninguna etapa", () => {
+  test("no stage swallows quota, deadline or cancellation", () => {
     assert.equal(mustPropagate(gemini429("5s")), true);
     assert.equal(mustPropagate(new ModelQuotaError(null, false)), true);
     assert.equal(mustPropagate(Object.assign(new Error(), { name: "AnalysisCancelledError" })), true);
@@ -331,8 +370,8 @@ describe("errores honestos", () => {
 // ---- 6. Cancel on disconnect ----
 const CHROMIUM = resolveChromiumPath();
 
-describe("cancelar al desconectar", () => {
-  test("abortar desde fuera corta el análisis y su señal", async () => {
+describe("cancel on disconnect", () => {
+  test("an outside abort stops the analysis and its signal", async () => {
     const client = new AbortController();
     let inner;
     const started = Date.now();
@@ -346,11 +385,11 @@ describe("cancelar al desconectar", () => {
     );
     setTimeout(() => client.abort(), 200);
     await assert.rejects(run, AnalysisCancelledError);
-    assert.equal(inner.aborted, true, "las llamadas al modelo reciben la cancelación");
+    assert.equal(inner.aborted, true, "model calls receive the cancellation");
     assert.ok(Date.now() - started < 2000);
   });
 
-  test("withAnalysisDeadline con señal pre-abortada rechaza sin ejecutar run", async () => {
+  test("withAnalysisDeadline with a pre-aborted signal rejects without running run", async () => {
     const client = new AbortController();
     client.abort();
     let called = false;
@@ -365,7 +404,7 @@ describe("cancelar al desconectar", () => {
     assert.equal(called, false);
   });
 
-  test("al cancelar se cierra el navegador", { skip: !fs.existsSync(CHROMIUM) && "Chromium no está instalado" }, async () => {
+  test("cancelling closes the browser", { skip: !fs.existsSync(CHROMIUM) && "Chromium is not installed" }, async () => {
     const client = new AbortController();
     let browser;
     const run = withAnalysisDeadline(
