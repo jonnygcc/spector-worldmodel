@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { predictDetours, type WorldModelOutcome } from "@/lib/worldmodel/world-model";
+import { createPredictionCache } from "@/lib/worldmodel/world-model-cache";
 import { validateWorldModelInput } from "@/lib/worldmodel/world-model-input";
 import { checkApiRequest, readBody } from "@/lib/security/request-guard";
 import { createLimiter, PREDICTION_LIMIT } from "@/lib/security/usage-limit";
@@ -14,6 +15,7 @@ const MAX_BODY = 20_000;
 
 // One prediction at a time plus a per-window cap (usage-limit.ts).
 const limiter = createLimiter(PREDICTION_LIMIT);
+const predictions = createPredictionCache();
 
 function failed(status: number, failure: Failure) {
   const outcome: WorldModelOutcome = { ok: false, reason: failure.message, ...failure };
@@ -42,6 +44,13 @@ export async function POST(request: NextRequest) {
   const validation = validateWorldModelInput(body);
   if (!validation.ok) return invalid(400, validation.error);
 
+  // Before the limiter: a stored answer spends no quota.
+  const stored = predictions.get(validation.input);
+  if (stored) {
+    console.log("[WorldModel] Same page and goal as before: reusing the stored prediction.");
+    return NextResponse.json(stored);
+  }
+
   const slot = limiter.acquire();
   if (!slot.ok) {
     return failed(429, { kind: "busy", message: slot.message, retryable: true, retryAfterSeconds: slot.retryAfterSeconds });
@@ -51,6 +60,7 @@ export async function POST(request: NextRequest) {
   // logs the stack and still gives the UI a retryable error instead of a 500.
   try {
     const outcome = await predictDetours(validation.input, request.signal);
+    predictions.remember(validation.input, outcome);
     return NextResponse.json(outcome, {
       headers:
         !outcome.ok && outcome.retryAfterSeconds ? { "Retry-After": String(outcome.retryAfterSeconds) } : undefined,
