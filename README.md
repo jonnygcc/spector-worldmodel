@@ -1,65 +1,128 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Spector
 
-## Getting Started
+Find UX friction on a website before your users do.
 
-First, run the development server:
+![Spector report](docs/images/report.png)
+
+Spector takes a URL and a goal "create an account", "see the pricing plans" then
+walks the site with a real browser to measure what actually happens, and uses a world
+model to predict what could go wrong along the way.
+
+![Starting an analysis](docs/images/home.png)
+
+## What it does
+
+Checking that the happy path works is the easy part. A good experience also depends on
+what the interface does when someone mistypes an email, misreads a label, or tries
+something you didn't plan for.
+
+Spector looks at both:
+
+- **The agent** walks the site with Playwright, step by step, and measures the route it
+  actually took.
+- **The world model** branches from what the agent saw and predicts the detours — the
+  confusions, the errors, the dead ends — without navigating each one.
+
+The two stay visually separate in the report, so what happened is never confused with
+what might happen.
+
+Built for developers and designers who want a read on their own flows without running a
+user test for every change. Especially useful on output from tools like Lovable, v0 or
+Framer, where the interface exists before anyone has stress-tested it.
+
+It doesn't replace testing with real people. It tells you where to look first.
+
+## Reading the report
+
+Each route carries a status, and the difference between them matters:
+
+| Status | What it means |
+|---|---|
+| `RECOMMENDED` | The agent walked it, arrived, and evidence confirmed it |
+| `EXECUTED` | Walked and arrived, but another route scored better |
+| `UNVERIFIED` | The model says it arrived; no evidence confirmed it. Can't be recommended |
+| `CONTINUES` | The flow leaves what Spector can follow. Not broken measurement stops there |
+| `FRICTION` | A predicted scenario where the user struggles but gets through |
+| `BLOCKED` | A predicted scenario where the user can't continue |
+
+Friction from the agent is measured. Friction from the world model is predicted — the
+ranking between scenarios is reliable, the exact number is not.
+
+## Setup
+
+You need Node.js 20+ and a Gemini API key, free from
+[Google AI Studio](https://aistudio.google.com/apikey).
 
 ```bash
+git clone https://github.com/jonnygcc/spector-worldmodel.git
+cd spector-worldmodel
+npm install
+cp .env.example .env.local   # then add your key to GEMINI_API_KEY
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. A full analysis takes 20 to 60 seconds.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Limitations
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Worth knowing before you file a bug:
 
-## Tokens de diseño
+**Public sites only.** Spector refuses `localhost`, private IP ranges and non-standard
+ports. This is deliberate: the tool opens any URL you hand it, so without that
+restriction a malicious page could use your own instance to read local files.
 
-Los tokens viven en `app/globals.css`, dentro de `@theme` (Tailwind v4), y copian una a una las variables del documento de Paper "Spector | World Model": mismo nombre, mismo valor. Si cambias un valor, cámbialo primero en Paper.
+**Flows that leave the site are not followed.** A checkout that hands off to Stripe, or
+a signup that opens a Google OAuth popup, reports `CONTINUES` and stops there. The route
+isn't marked as failed, but nothing past the handoff is measured.
 
-### La escala de spacing sobrescribe la de Tailwind
+**World model numbers are predictions, not measurements.** Re-running the same page and
+goal returns the cached result, so a number won't change under you. But a fresh
+prediction of the same page can land somewhere noticeably different — read them as a
+signal of which scenarios deserve a look, not as a score to track over time.
 
-Por defecto, en Tailwind v4 `p-24` vale `24 × 0.25rem = 96px`. Aquí no: `--spacing-24` está definido en el tema, y Tailwind usa el valor del tema antes que el multiplicador.
+**Bot detection stops the agent.** Sites behind Cloudflare, reCAPTCHA or similar may
+block the browser before it gets anywhere.
 
-| Clase | Con los tokens de Spector | Tailwind por defecto |
-|---|---|---|
-| `p-4` | 4px | 16px |
-| `gap-8` | 8px | 32px |
-| `p-24` | 24px | 96px |
-| `mt-96` | 96px | 384px |
+**Quota.** One analysis makes roughly 12 calls to Gemini. The free tier allows 15 per
+minute and 500 per day, so back-to-back runs will hit the limit. Spector says so instead
+of failing silently. Re-running the same page and goal is free — the prediction is
+cached.
 
-Los valores definidos son 4, 8, 12, 16, 24, 32, 48, 64, 96 y 140. Cualquier otro número sigue usando el multiplicador de Tailwind (`p-6` = 24px, `p-20` = 80px), así que usa solo los de la escala.
+**The model selector is not wired yet.** The dropdown shows where the project is going;
+today every analysis runs on Gemini Flash.
 
-### Cifras tabulares
+## How it works
 
-Regla del sistema: toda cifra que se lee en columna o se compara con otra (tiempo, probabilidad, pasos, fricción, conteos, horas) lleva la clase `tabular-nums` (`font-variant-numeric: tabular-nums`). Sin ella, los dígitos de Space Grotesk tienen anchos distintos y las columnas de la tabla del reporte se desalinean. La utilidad la trae Tailwind v4; no hay que definirla.
+```
+URL + goal
+    │
+    ├─ Agent        Playwright walks the site, step by step, with screenshots.
+    │               Friction here is measured from what happened.
+    │
+    └─ World model  Takes the first state the agent captured and branches from it.
+                    Predicts alternative routes, user errors and interface confusions
+                    — all toward the same goal — without navigating them.
+```
 
-### Tipografía
+Every URL that reaches the browser passes a validator, and the browser only reaches the
+network through a proxy that re-checks every connection, including redirects. Page
+content is passed to the model as data, never as instructions.
 
-Space Grotesk (400, 500, 600) se carga en `app/layout.tsx` con `next/font`, self-hosted, y expone la variable `--font-space-grotesk`. Los tokens `--font-heading` y `--font-body` apuntan a ella (`var(--font-space-grotesk), sans-serif`); no uses el nombre literal "Space Grotesk", porque `next/font` renombra la familia al cargarla.
+**Stack:** Next.js 16 (App Router) · Tailwind CSS · Playwright · Google Gemini Flash
 
-### Interlineado
+## Background
 
-Paper solo acepta porcentajes, así que allí los `leading-*` están como 115%, 125% y 150%. En `globals.css` se escriben como 1.15, 1.25 y 1.5: un número sin unidad lo recalcula cada elemento según su tamaño, mientras que un porcentaje se convierte en píxeles fijos y los hijos heredan ese valor.
+Spector grew out of [WebDreamer](https://arxiv.org/abs/2411.06559) (OSU NLP, TMLR 2025),
+which explores using LLMs to anticipate what happens during web navigation, and from
+earlier work by David Ha and Jürgen Schmidhuber on
+[exploring scenarios inside a simulated environment](https://worldmodels.github.io/)
+before acting in the real one.
 
-## Learn More
+## Contributing
 
-To learn more about Next.js, take a look at the following resources:
+The idea has more in it than one person can explore. Issues and pull requests are
+welcome, and so is forking it and taking it somewhere else entirely.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
