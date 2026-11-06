@@ -29,6 +29,7 @@ export default function Tooltip({
   tone = "dark",
   className = "inline-flex",
   disabled = false,
+  below: preferBelow = false,
 }: {
   content: string;
   children: ReactNode;
@@ -37,6 +38,7 @@ export default function Tooltip({
   tone?: "dark" | "light";
   className?: string;
   disabled?: boolean;
+  below?: boolean;
 }) {
   const bubbleTone =
     tone === "light" ? "bg-neutral-100 text-neutral-800 shadow-control" : "bg-neutral-800 text-neutral-100";
@@ -88,14 +90,15 @@ export default function Tooltip({
       window.innerWidth - EDGE - b.width
     );
     const above = t.top - GAP - ARROW - b.height;
-    const below = above < EDGE;
+    const fitsBelow = t.bottom + GAP + ARROW + b.height <= window.innerHeight - EDGE;
+    const below = above < EDGE || (preferBelow && fitsBelow);
     setPlacement({
       top: below ? t.bottom + GAP + ARROW : above,
       left,
       arrowLeft: center - left,
       below,
     });
-  }, [mounted, placement]);
+  }, [mounted, placement, preferBelow]);
 
   useEffect(() => {
     if (!open) return;

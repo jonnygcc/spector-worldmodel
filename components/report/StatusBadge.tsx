@@ -21,8 +21,8 @@ const MEANING: Record<Status, string> = {
   unreachable: "No path to the goal was found, even after re-planning.",
   success: "Predicted to reach the goal.",
   friction: "Predicted to reach the goal, with friction along the way.",
-  unverified: "Reached the end of the route, but Spector couldn't confirm the goal on the final page.",
-  continues: "The flow goes on where Spector can't follow it, so the rest wasn't measured. This isn't a problem with the site.",
+  unverified: "The model says this route arrived, but no evidence confirmed it. Routes without evidence can't be recommended.",
+  continues: "The flow continues outside what Spector can follow. The route isn't broken; measurement stops here.",
 };
 
 // The same status reads differently by source: a World Model BLOCKED is a prediction.

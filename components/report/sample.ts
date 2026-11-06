@@ -32,7 +32,7 @@ export type Route = {
   friction: { value: number; level: Friction };
   // Missing only in old data; engine routes always have it.
   status?: Status;
-  // Predicted by the World Model, never executed: "~" on time and steps, dotted friction bar, no screenshots.
+  // Predicted by the World Model, never executed: "~" on time and steps, friction as a range, no screenshots.
   estimated?: boolean;
   // Step count shown when it differs from the drawn steps (a prediction may estimate more than it details).
   stepCount?: number;

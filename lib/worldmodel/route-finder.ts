@@ -1,6 +1,6 @@
 import { PageState, InteractiveElement } from "./types";
 import { Goal, Persona } from "./goal-types";
-import { askGemini, cleanJsonResponse } from "../llm/gemini";
+import { askGemini, cleanJsonResponse, NO_SAMPLING } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { ROUTES_SCHEMA } from "../llm/schemas";
@@ -59,6 +59,7 @@ export async function findRoutes(
       elements: elements.map((el) => ({ label: el.label, type: el.type })),
     },
     schema: ROUTES_SCHEMA,
+    temperature: NO_SAMPLING,
   };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

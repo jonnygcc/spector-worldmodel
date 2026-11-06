@@ -6,6 +6,7 @@ import {
   cleanJsonResponse,
   contentsOf,
   GEMINI_MODEL,
+  NO_SAMPLING,
   type GeminiAnswer,
   type ModelRequest,
 } from "../llm/gemini";
@@ -122,6 +123,7 @@ async function askOpenRouter(request: ModelRequest, signal: AbortSignal): Promis
       ],
       response_format: { type: "json_object" },
       max_tokens: OUTPUT_TOKENS,
+      temperature: request.temperature,
     }),
     signal,
   });
@@ -404,6 +406,7 @@ export async function predictDetours(input: WorldModelInput, signal?: AbortSigna
     },
     schema: SCENARIO_SCHEMA,
     maxOutputTokens: OUTPUT_TOKENS,
+    temperature: NO_SAMPLING,
   };
   console.log(
     `[WorldModel] pageContext ${input.pageContext.length} chars (sent ${pageContext.length}), ` +

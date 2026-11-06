@@ -34,7 +34,11 @@ export interface ModelRequest {
   pageData?: unknown;
   schema: Schema;
   maxOutputTokens?: number;
+  temperature?: number;
 }
+
+// For calls friction depends on. It lowers run-to-run drift without ending it: this model still varies at 0.
+export const NO_SAMPLING = 0;
 
 // The longest answer (5 routes, or 6 steps with expectations) is about 1,500 tokens.
 const OUTPUT_TOKENS = 4096;
@@ -54,6 +58,7 @@ function configOf(request: ModelRequest, signal?: AbortSignal): GenerateContentC
     responseMimeType: "application/json",
     responseSchema: request.schema,
     maxOutputTokens: request.maxOutputTokens ?? OUTPUT_TOKENS,
+    temperature: request.temperature,
     abortSignal: signal,
   };
 }

@@ -3,7 +3,7 @@ import { Goal, Persona, RouteStep, Route, RouteStepResult } from "./goal-types";
 import { RouteEntry } from "./route-finder";
 import { describePersonaForPrompt } from "./persona-resolver";
 import { sanitizeStep, sanitizeSteps } from "./step-guard";
-import { askGemini, cleanJsonResponse } from "../llm/gemini";
+import { askGemini, cleanJsonResponse, NO_SAMPLING } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
 import { DREAM_SCHEMA, REDREAM_SCHEMA } from "../llm/schemas";
@@ -55,6 +55,7 @@ async function dreamSingleRoute(
       entry: { label: entry.entryPoint, type: entry.entryType, action: entry.entryDescription },
     },
     schema: DREAM_SCHEMA,
+    temperature: NO_SAMPLING,
   });
   const cleaned = cleanJsonResponse(response);
 
@@ -162,6 +163,7 @@ export async function redreamFromState(
       system: fill(PROMPTS.redreamRoute, trustedValues(goal, persona)),
       pageData: { steps_done: stepsDone, replan_reason: reason, current_page: pageDataOf(state) },
       schema: REDREAM_SCHEMA,
+      temperature: NO_SAMPLING,
     });
     const parsed = JSON.parse(cleanJsonResponse(response)) as { goalAlreadyMet?: boolean; steps?: unknown };
     return {

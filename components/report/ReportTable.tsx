@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import FrictionBar from "./FrictionBar";
+import { frictionDisplay } from "./frictionDisplay";
 import StatusBadge from "./StatusBadge";
 import { pathLength, withReach } from "./pathSteps";
 import StepStrip from "./StepStrip";
@@ -22,7 +23,7 @@ const COL = {
 const HEAD =
   "font-heading text-label font-medium uppercase leading-rg tracking-wide text-neutral-600";
 
-// No header tooltips: FRICTION's label already says enough; only status badges have one.
+// No header tooltips: FRICTION's label already says enough; badges and non-measured friction have one.
 const FRICTION_LABEL = "Friction (lower is better)";
 
 const NUMBER =
@@ -74,6 +75,9 @@ export default function ReportTable({
           const isOpen = open === i;
           const panelId = `${id}-${i}-steps`;
           const statusTipId = `${id}-${i}-status-tip`;
+          const frictionTipId = `${id}-${i}-friction-tip`;
+          const friction = frictionDisplay(route);
+          const describedBy = [route.status && statusTipId, friction.tip && frictionTipId].filter(Boolean).join(" ");
           const count = route.stepCount ?? pathLength(route.steps);
           const steps = route.estimated ? `~${count}` : count;
 
@@ -86,7 +90,7 @@ export default function ReportTable({
                 type="button"
                 aria-expanded={isOpen}
                 aria-controls={panelId}
-                aria-describedby={route.status ? statusTipId : undefined}
+                aria-describedby={describedBy || undefined}
                 onClick={() => setOpen(isOpen ? null : i)}
                 // data-tip-anchor: focusing the row with the keyboard opens the status badge tooltip.
                 data-tip-anchor=""
@@ -110,7 +114,7 @@ export default function ReportTable({
                 </span>
                 <span className={`shrink-0 ${COL.steps} ${NUMBER} ${DESKTOP}`}>{steps}</span>
                 <span className={`shrink-0 ${COL.friction} ${DESKTOP}`}>
-                  <FrictionBar value={route.friction.value} level={route.friction.level} />
+                  <FrictionBar display={friction} tooltipId={frictionTipId} />
                 </span>
                 <span className={`shrink-0 ${COL.status} ${DESKTOP}`}>
                   {route.status ? (
@@ -157,7 +161,7 @@ export default function ReportTable({
                       </div>
                       <div className="flex flex-wrap gap-24">
                         <Metric label={FRICTION_LABEL}>
-                          <FrictionBar value={route.friction.value} level={route.friction.level} />
+                          <FrictionBar display={friction} />
                         </Metric>
                         <Metric label="Status">
                           {route.status ? (
