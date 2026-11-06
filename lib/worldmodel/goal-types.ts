@@ -257,7 +257,7 @@ export interface RouteComparison {
   routes: Route[];
   // Routes the finder proposed that passed the success-criteria filter (a subset runs in the browser).
   routesFound?: number;
-  // Goal signals, derived before visiting the site.
+  // Goal signals: derived from the goal and the site's language, never from page content.
   goalSignals?: GoalSignals;
   bestRouteId: string | null;
   mostLikelyRouteId: string | null;

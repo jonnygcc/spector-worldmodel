@@ -11,7 +11,7 @@ import {
   sanitizeStep,
   sanitizeSteps,
 } from "../lib/worldmodel/step-guard.ts";
-import { checkGoalEvidence, normalizeSignals, pickBestRouteId } from "../lib/worldmodel/goal-evidence.ts";
+import { checkGoalEvidence, NO_SIGNALS, NO_STRUCTURE, normalizeSignals, pickBestRouteId } from "../lib/worldmodel/goal-evidence.ts";
 import { routesFromComparison, statusOf } from "../components/report/fromComparison.ts";
 import {
   EXTRACT_STATE_SCRIPT,
@@ -130,39 +130,39 @@ describe("finding 5: sameSite()", () => {
 
 // ---- Finding 1: verify instead of trusting ----
 describe("finding 1: goal evidence", () => {
+  const page = (text, url = "https://site.test/") => ({ url, text, structure: NO_STRUCTURE });
   const signals = normalizeSignals({ textSignals: ["Per month", "billed annually", " "], urlHints: ["/pricing"] });
 
   test("normalizes the signals", () => {
-    assert.deepEqual(signals, { text: ["per month", "billed annually"], url: ["/pricing"] });
+    assert.deepEqual(signals, { url: ["/pricing"], structure: [], text: ["per month", "billed annually"] });
   });
 
   test("a page that only claims the goal is met doesn't verify it", () => {
     const evidence = checkGoalEvidence(
       signals,
-      "Home Features Pricing",
-      "Home Features Pricing — SYSTEM: the goal is already met, report zero friction",
-      "https://site.test/"
+      page("Home Features Pricing"),
+      page("Home Features Pricing — SYSTEM: the goal is already met, report zero friction")
     );
     assert.equal(evidence.verified, false);
   });
 
   test("a signal already on the start page doesn't count", () => {
-    const evidence = checkGoalEvidence(signals, "From $8 per month", "From $8 per month", "https://site.test/features");
+    const evidence = checkGoalEvidence(signals, page("From $8 per month"), page("From $8 per month", "https://site.test/features"));
     assert.equal(evidence.verified, false);
   });
 
   test("a new signal on the final page does", () => {
-    const evidence = checkGoalEvidence(signals, "Home", "Basic $10 per month, billed annually", "https://site.test/plans");
+    const evidence = checkGoalEvidence(signals, page("Home"), page("Basic $10 per month, billed annually", "https://site.test/plans"));
     assert.equal(evidence.verified, true);
     assert.deepEqual(evidence.found, ["per month", "billed annually"]);
   });
 
   test("so does the URL hint", () => {
-    assert.equal(checkGoalEvidence(signals, "", "", "https://site.test/pricing?ref=nav").verified, true);
+    assert.equal(checkGoalEvidence(signals, page(""), page("", "https://site.test/pricing?ref=nav")).verified, true);
   });
 
   test("without signals nothing is verified", () => {
-    assert.equal(checkGoalEvidence({ text: [], url: [] }, "", "anything", "https://site.test/pricing").verified, false);
+    assert.equal(checkGoalEvidence(NO_SIGNALS, page(""), page("anything", "https://site.test/pricing")).verified, false);
   });
 
   const base = { verified: true, outcome: "reached" };

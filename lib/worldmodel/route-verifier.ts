@@ -1,5 +1,12 @@
 import { Browser, Locator, Page } from "playwright-core";
-import { captureState, findElementCandidates, findElementMatch, launchBrowser, ElementCandidate } from "./capture";
+import {
+  captureState,
+  findElementCandidates,
+  findElementMatch,
+  launchBrowser,
+  pageStructure,
+  ElementCandidate,
+} from "./capture";
 import {
   Goal,
   Persona,
@@ -14,7 +21,7 @@ import {
 import { PageState } from "./types";
 import { describePersonaForPrompt } from "./persona-resolver";
 import { redreamFromState } from "./route-dreamer";
-import { checkGoalEvidence, GoalSignals, NO_SIGNALS, pickBestRouteId } from "./goal-evidence";
+import { checkGoalEvidence, GoalSignals, NO_SIGNALS, PageEvidence, pickBestRouteId } from "./goal-evidence";
 import { sameSite, siteHost } from "./step-guard";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
@@ -289,7 +296,7 @@ async function verifyRoute(
     // The site is where the URL landed (linear.app → www.linear.app); its text is the baseline for the
     // goal signals at the end.
     const siteUrl = page.url();
-    const initialText = await pageText(page);
+    const initial: PageEvidence = { url: siteUrl, text: await pageText(page), structure: await pageStructure(page) };
 
     while (outcome === null) {
       if (results.length >= MAX_ATTEMPTS) {
@@ -387,8 +394,13 @@ async function verifyRoute(
     // for the goal signals on the final page.
     const evidence =
       finalOutcome === "reached"
-        ? checkGoalEvidence(goalSignals, initialText, await pageText(page), page.url())
+        ? checkGoalEvidence(goalSignals, initial, {
+            url: page.url(),
+            text: await pageText(page),
+            structure: await pageStructure(page),
+          })
         : null;
+    if (evidence) console.log(`  [${route.id}] goal evidence: ${evidence.via ?? "none"} [${evidence.found.join(", ")}]`);
     await page.close();
     // Metrics only over the path: steps discarded on re-plan are engine stumbles, not the site's flow.
     const path = results.filter((r) => !r.discarded);

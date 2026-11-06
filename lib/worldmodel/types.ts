@@ -11,6 +11,8 @@ export interface InteractiveElement {
 export interface PageState {
   url: string;
   title: string;
+  // Validated code ("es"), or null when neither the lang attribute nor the content tells.
+  language: string | null;
   // Visible headings only, capped (page-scripts.ts). No meta description: the user doesn't see it.
   headings: string[];
   interactiveElements: InteractiveElement[];

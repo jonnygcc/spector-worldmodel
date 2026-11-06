@@ -1,5 +1,6 @@
 import { Type, type Schema } from "@google/genai";
 import { ALLOWED_KEYS, STEP_TYPES, TARGET_TYPES } from "../worldmodel/step-guard";
+import { STRUCTURAL_SIGNALS } from "../worldmodel/goal-evidence";
 
 // Enums bound what an injection can do with the output. Code still re-validates (step-guard.ts):
 // the schema narrows, it doesn't replace.
@@ -104,9 +105,10 @@ export const PERSONA_SCHEMA: Schema = {
 export const GOAL_SIGNALS_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
+    urlHints: { type: Type.ARRAY, maxItems: "8", items: { type: Type.STRING } },
+    structuralSignals: { type: Type.ARRAY, items: { type: Type.STRING, enum: [...STRUCTURAL_SIGNALS] } },
     textSignals: { type: Type.ARRAY, maxItems: "8", items: { type: Type.STRING } },
-    urlHints: { type: Type.ARRAY, maxItems: "5", items: { type: Type.STRING } },
   },
-  required: ["textSignals", "urlHints"],
-  propertyOrdering: ["textSignals", "urlHints"],
+  required: ["urlHints", "structuralSignals", "textSignals"],
+  propertyOrdering: ["urlHints", "structuralSignals", "textSignals"],
 };

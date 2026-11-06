@@ -9,6 +9,7 @@ export const MAX_ELEMENTS = 100;
 // Caps the DOM work: a page with hundreds of thousands of nodes doesn't multiply each script's cost.
 export const MAX_TAGGED = 2000;
 export const MAX_HEADINGS_SCANNED = 200;
+const MAX_INPUTS_SCANNED = 500;
 
 const IS_VISIBLE = `
   const isVisible = (el) => {
@@ -108,8 +109,32 @@ export const EXTRACT_STATE_SCRIPT = `
   // Up to ${MAX_ELEMENTS} in document order: with 40, a category page returned only header and filter
   // elements, no products.
   return {
+    lang: document.documentElement.getAttribute('lang'),
     headings: headings,
     interactiveElements: interactiveElements.slice(0, ${MAX_ELEMENTS})
+  };
+})()
+`;
+
+// Attributes and types, never visible text, so the same check works in any language.
+export const STRUCTURE_SCRIPT = `
+(() => {
+  ${IS_VISIBLE}
+  const fieldTypes = ':not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search])';
+  const fields = Array.prototype.slice
+    .call(document.querySelectorAll('input' + fieldTypes + ', textarea, select'), 0, ${MAX_INPUTS_SCANNED})
+    .filter(isVisible);
+  const attrs = (el) => [el.getAttribute('autocomplete'), el.getAttribute('name'), el.id].join(' ');
+  const count = (test) => fields.filter(test).length;
+  const paymentFrames = Array.prototype.slice
+    .call(document.querySelectorAll('iframe'), 0, ${MAX_INPUTS_SCANNED})
+    .filter((el) => isVisible(el) && /stripe|adyen|braintree|paypal|mercadopago/i.test((el.getAttribute('src') || '') + ' ' + (el.getAttribute('name') || '')));
+  return {
+    password: count((el) => el.type === 'password'),
+    email: count((el) => el.type === 'email' || /e-?mail/i.test(attrs(el))),
+    forms: Array.prototype.filter.call(document.forms, (form) => fields.some((el) => form.contains(el))).length,
+    payment: count((el) => /cc-|card.?number|cvv|cvc/i.test(attrs(el))) + paymentFrames.length,
+    inputs: fields.length
   };
 })()
 `;

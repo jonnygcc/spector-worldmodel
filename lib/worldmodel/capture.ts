@@ -8,7 +8,15 @@ import {
   SANDBOX_ARGS,
   trackBrowser,
 } from "../security/browser-sandbox";
-import { buildFindElementScript, EXTRACT_STATE_SCRIPT, MAX_TITLE, TAG_ELEMENTS_SCRIPT } from "./page-scripts";
+import {
+  buildFindElementScript,
+  EXTRACT_STATE_SCRIPT,
+  MAX_TITLE,
+  STRUCTURE_SCRIPT,
+  TAG_ELEMENTS_SCRIPT,
+} from "./page-scripts";
+import { NO_STRUCTURE, type PageStructure } from "./goal-evidence";
+import { pageLanguage } from "./page-language";
 
 // Egress only through the URL guard's proxy, no permission prompts, and registered in the analysis
 // session so it always gets closed.
@@ -38,17 +46,26 @@ export async function captureState(page: Page): Promise<PageState> {
   const screenshot = `data:image/jpeg;base64,${screenshotBuffer.toString("base64")}`;
 
   const extracted = await evaluateWithTimeout<{
+    lang: string | null;
     headings: string[];
     interactiveElements: InteractiveElement[];
   }>(page, EXTRACT_STATE_SCRIPT);
 
+  const visibleText = [title, ...extracted.headings, ...extracted.interactiveElements.map((el) => el.label)].join(" ");
+
   return {
     url,
     title,
+    language: pageLanguage(extracted.lang, visibleText),
     headings: extracted.headings,
     interactiveElements: extracted.interactiveElements,
     screenshot,
   };
+}
+
+// A page that stops responding counts as no structure, which can only leave a route UNVERIFIED.
+export async function pageStructure(page: Page): Promise<PageStructure> {
+  return await evaluateWithTimeout<PageStructure>(page, STRUCTURE_SCRIPT).catch(() => NO_STRUCTURE);
 }
 
 export async function visitAndCapture(url: string): Promise<{

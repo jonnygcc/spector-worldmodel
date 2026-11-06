@@ -12,14 +12,15 @@ import { GOAL_SIGNALS_SCHEMA } from "../llm/schemas";
 import { checkDeadline, withAnalysisDeadline, ANALYSIS_TIMEOUT_MS } from "../security/browser-sandbox";
 import { mustPropagate } from "../llm/model-errors";
 
-// Derived from the goal only, never from site data. If the call fails there are no signals, and no
-// route can come out verified (UNVERIFIED).
-async function deriveGoalSignals(goal: Goal): Promise<GoalSignals> {
+// Only the validated language code comes from the site, never its content, so a page can't shape
+// its own evidence. If the call fails there are no signals and no route comes out verified.
+async function deriveGoalSignals(goal: Goal, language: string | null): Promise<GoalSignals> {
   try {
     const response = await askGemini({
       system: fill(PROMPTS.goalSignals, {
         GOAL_DESCRIPTION: goal.description,
         SUCCESS_CRITERIA: goal.successCriteria,
+        SITE_LANGUAGE: language ?? "unknown",
       }),
       schema: GOAL_SIGNALS_SCHEMA,
     });
@@ -71,12 +72,14 @@ async function analyze(
   // Load the site before resolving the persona: they're independent, it matches the UI order, and a site
   // that won't load fails in the first stage.
   onStage("load");
-  // Before visiting the site, so the page can't influence the signals.
-  const goalSignals = await deriveGoalSignals(goal);
-  console.log(`[Spector] Goal signals: text [${goalSignals.text.join(", ")}], url [${goalSignals.url.join(", ")}]`);
   console.log("[Spector] Capturing initial state...");
   const { browser, state } = await visitAndCapture(url);
   await browser.close();
+  const goalSignals = await deriveGoalSignals(goal, state.language);
+  console.log(
+    `[Spector] Goal signals (${state.language ?? "unknown language"}): url [${goalSignals.url.join(", ")}], ` +
+      `structure [${goalSignals.structure.join(", ")}], text [${goalSignals.text.join(", ")}]`
+  );
 
   onStage("profiles");
   console.log("[Spector] Resolving persona...");

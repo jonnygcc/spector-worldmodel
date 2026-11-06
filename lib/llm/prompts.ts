@@ -3,11 +3,11 @@
 import { PAGE_DATA_RULES } from "./prompt-data";
 
 export const PROMPTS = {
-  // Derived from the goal alone, before visiting the site, so the page can't influence them;
-  // goal-evidence.ts looks for them at the end of each route.
+  // Sees the goal and a validated language code, no page content: goal-evidence.ts checks these on the
+  // final page, so a page must not be able to shape them.
   goalSignals: `You are the Goal Checker of Spector, a UX world model.
 
-Before Spector visits a website, you define how to recognize, with simple text matching, that a user has completed a goal on it. You have not seen the site.
+Spector needs to recognize, with simple checks in code, that a user completed a goal on a website. You have not seen the site. You only know the language of its pages: {SITE_LANGUAGE} ("unknown" if it could not be detected).
 
 GOAL:
 {GOAL_DESCRIPTION}
@@ -16,12 +16,19 @@ SUCCESS CRITERIA:
 {SUCCESS_CRITERIA}
 
 INSTRUCTIONS:
-1. "textSignals": 3 to 8 short texts (1-3 words) that are typically VISIBLE on the page where this goal is completed, and usually NOT on a site's home page. Examples for "see pricing": "per month", "/mo", "billed annually", "pricing plans". For "add to cart": "added to cart", "checkout", "subtotal".
-2. Include the signals in English and, if the goal is written in another language, also in that language.
-3. Avoid words that appear in every site's navigation ("home", "menu", "login", "pricing" alone, "contact"): they prove nothing.
-4. "urlHints": 0 to 5 lowercase URL path fragments where this goal is typically completed (e.g. "/pricing", "/cart", "/checkout", "/signup"). Leave it empty if there is no typical path.
+Language-independent signals come first, because they work on any site. The goal may be written in a different language than the site: that does not change them.
+1. "urlHints": up to 8 lowercase URL path fragments where this goal is typically completed. Give the usual English ones (e.g. "/signup", "/register", "/checkout", "/pricing", "/account", "/welcome", "/success") and, if the site language is not English, the same ones in that language (e.g. for "es": "/registro", "/crear-cuenta", "/precios", "/planes", "/cuenta", "/pago"). Leave it empty if there is no typical path.
+2. "structuralSignals": the page elements that should NEWLY appear when this goal is completed, from this list only. Leave out any that the goal does not require; it may be empty.
+   - "password_field": a password input (creating an account, logging in).
+   - "email_field": an email input (signing up, subscribing, contact forms).
+   - "form": a form with fields to fill in (signing up, contact, checkout).
+   - "payment_field": a card number field or embedded payment form (paying).
+   - "new_inputs": more input fields than the starting page (any data entry).
+   A goal that is only about reading or viewing something (seeing prices, finding information) needs none of these.
+3. "textSignals": 3 to 8 short texts (1-3 words), used only as a fallback, that are typically VISIBLE on the page where this goal is completed and usually NOT on a site's home page. Every text MUST be written in {SITE_LANGUAGE}, the words a page in that language would really show, even when the goal is in another language. Only if the language is "unknown", use English. Think of concepts such as the price per month or the billing period for pricing, or the confirmation that something was added for a cart, and write them in that language.
+4. Avoid texts that appear in every site's navigation ("home", "menu", "login", "pricing" alone, "contact"): they prove nothing.
 
-Respond with JSON: { "textSignals": [...], "urlHints": [...] }.`,
+Respond with JSON: { "urlHints": [...], "structuralSignals": [...], "textSignals": [...] }.`,
 
   findRoutes: `You are the Route Finder of Spector, a UX world model.
 

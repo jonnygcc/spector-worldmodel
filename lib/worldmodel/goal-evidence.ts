@@ -1,25 +1,53 @@
 import type { Route } from "./goal-types";
 
-// Signals come from the goal alone, before the visit; code looks for them on the final page, and a
-// route the model calls arrived without any is UNVERIFIED. No runtime deps, for `node --test`.
+// Structural signals work in any language, so they decide first; text is only the fallback. The model
+// never sees page content here, and code does the checking. No runtime deps, for `node --test`.
+
+export const STRUCTURAL_SIGNALS = ["password_field", "email_field", "form", "payment_field", "new_inputs"] as const;
+export type StructuralSignal = (typeof STRUCTURAL_SIGNALS)[number];
 
 export interface GoalSignals {
-  // Visible texts that appear once the goal is met.
-  text: string[];
-  // URL path fragments where it's usually met ("/pricing").
+  // URL path fragments where the goal is usually met ("/pricing").
   url: string[];
+  structure: StructuralSignal[];
+  // Visible texts in the site's language, only consulted when the structural checks find nothing.
+  text: string[];
 }
 
-export const NO_SIGNALS: GoalSignals = { text: [], url: [] };
+export const NO_SIGNALS: GoalSignals = { url: [], structure: [], text: [] };
+
+// Counts, not yes/no: a second form on the final page is still new.
+export interface PageStructure {
+  password: number;
+  email: number;
+  forms: number;
+  payment: number;
+  inputs: number;
+}
+
+export const NO_STRUCTURE: PageStructure = { password: 0, email: 0, forms: 0, payment: 0, inputs: 0 };
+
+const STRUCTURE_KEY: Record<StructuralSignal, keyof PageStructure> = {
+  password_field: "password",
+  email_field: "email",
+  form: "forms",
+  payment_field: "payment",
+  new_inputs: "inputs",
+};
+
+export interface PageEvidence {
+  url: string;
+  text: string;
+  structure: PageStructure;
+}
 
 const MAX_TEXT_SIGNALS = 8;
-const MAX_URL_HINTS = 5;
+const MAX_URL_HINTS = 8;
 const MAX_SIGNAL = 40;
 
 const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 const occurrences = (text: string, needle: string) => (needle ? text.split(needle).length - 1 : 0);
 
-// Short, non-empty, unique strings.
 export function normalizeSignals(raw: unknown): GoalSignals {
   const list = (value: unknown, max: number) =>
     Array.isArray(value)
@@ -32,37 +60,46 @@ export function normalizeSignals(raw: unknown): GoalSignals {
           ),
         ].slice(0, max)
       : [];
-  const r = (raw ?? {}) as { textSignals?: unknown; urlHints?: unknown };
-  return { text: list(r.textSignals, MAX_TEXT_SIGNALS), url: list(r.urlHints, MAX_URL_HINTS) };
+  const r = (raw ?? {}) as { textSignals?: unknown; urlHints?: unknown; structuralSignals?: unknown };
+  const structure = STRUCTURAL_SIGNALS.filter(
+    (signal) => Array.isArray(r.structuralSignals) && r.structuralSignals.includes(signal)
+  );
+  return { url: list(r.urlHints, MAX_URL_HINTS), structure, text: list(r.textSignals, MAX_TEXT_SIGNALS) };
 }
 
 export interface GoalEvidence {
   verified: boolean;
   found: string[];
+  via: "structure" | "text" | null;
 }
 
-// A text signal only counts if it appears more often than on the start page: "Pricing" sits in
-// every header and proves nothing.
-export function checkGoalEvidence(
-  signals: GoalSignals,
-  initialText: string,
-  finalText: string,
-  finalUrl: string
-): GoalEvidence {
-  const before = normalize(initialText);
-  const after = normalize(finalText);
-  let path = "";
+function pathOf(url: string): string {
   try {
-    const url = new URL(finalUrl);
-    path = `${url.pathname}${url.search}`.toLowerCase();
+    const { pathname, search } = new URL(url);
+    return `${pathname}${search}`.toLowerCase();
   } catch {
-    // Without a readable URL only text signals count.
+    return "";
   }
-  const found = [
-    ...signals.url.filter((hint) => path.includes(hint)),
-    ...signals.text.filter((signal) => occurrences(after, signal) > occurrences(before, signal)),
+}
+
+// Nothing already on the start page counts: "Pricing" sits in every header, a newsletter box is an
+// email field, and analyzing /pricing itself proves nothing about arriving there.
+export function checkGoalEvidence(signals: GoalSignals, initial: PageEvidence, final: PageEvidence): GoalEvidence {
+  const before = pathOf(initial.url);
+  const after = pathOf(final.url);
+  const structural = [
+    ...signals.url.filter((hint) => after.includes(hint) && !before.includes(hint)),
+    ...signals.structure.filter((signal) => {
+      const key = STRUCTURE_KEY[signal];
+      return final.structure[key] > initial.structure[key];
+    }),
   ];
-  return { verified: found.length > 0, found };
+  if (structural.length > 0) return { verified: true, found: structural, via: "structure" };
+
+  const textBefore = normalize(initial.text);
+  const textAfter = normalize(final.text);
+  const text = signals.text.filter((signal) => occurrences(textAfter, signal) > occurrences(textBefore, signal));
+  return text.length > 0 ? { verified: true, found: text, via: "text" } : { verified: false, found: [], via: null };
 }
 
 // Whatever the comparator proposes is ignored unless the route ran, arrived and was verified.
