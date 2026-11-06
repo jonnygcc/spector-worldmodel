@@ -47,16 +47,15 @@ export async function captureState(page: Page): Promise<PageState> {
 
   const extracted = await evaluateWithTimeout<{
     lang: string | null;
+    text: string;
     headings: string[];
     interactiveElements: InteractiveElement[];
   }>(page, EXTRACT_STATE_SCRIPT);
 
-  const visibleText = [title, ...extracted.headings, ...extracted.interactiveElements.map((el) => el.label)].join(" ");
-
   return {
     url,
     title,
-    language: pageLanguage(extracted.lang, visibleText),
+    language: pageLanguage(extracted.lang, `${title} ${extracted.text}`),
     headings: extracted.headings,
     interactiveElements: extracted.interactiveElements,
     screenshot,

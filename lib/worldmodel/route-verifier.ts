@@ -22,7 +22,7 @@ import { PageState } from "./types";
 import { describePersonaForPrompt } from "./persona-resolver";
 import { redreamFromState } from "./route-dreamer";
 import { checkGoalEvidence, GoalSignals, NO_SIGNALS, PageEvidence, pickBestRouteId } from "./goal-evidence";
-import { sameSite, siteHost } from "./step-guard";
+import { routeExit } from "./step-guard";
 import { askGemini, cleanJsonResponse } from "../llm/gemini";
 import { PROMPTS } from "../llm/prompts";
 import { fill } from "../llm/prompt-data";
@@ -35,6 +35,7 @@ import {
   evaluateWithTimeout,
   MAX_PAGE_TEXT,
   newSandboxedPage,
+  popupAfterAction,
   withTimeout,
 } from "../security/browser-sandbox";
 
@@ -67,15 +68,16 @@ async function act(
   page: Page,
   step: RouteStep,
   element: Locator | null
-): Promise<{ executed: boolean; stateChanged: boolean }> {
+): Promise<{ executed: boolean; stateChanged: boolean; popup: boolean }> {
   const urlBefore = page.url();
   const bodyBefore = await pageText(page);
+  const startedAt = Date.now();
 
   try {
     if (step.type === "scroll") {
       await evaluateWithTimeout(page, "window.scrollBy(0, window.innerHeight)");
       await page.waitForTimeout(1000);
-      return { executed: true, stateChanged: true };
+      return { executed: true, stateChanged: true, popup: false };
     }
     if (step.type === "press") {
       await withTimeout(page.keyboard.press(step.value || "Enter"), ACTION_TIMEOUT_MS, "The key press timed out.");
@@ -85,7 +87,7 @@ async function act(
       if (step.type === "type") {
         await element.click({ timeout: 6000 }).catch(() => {});
         await element.fill(step.value || "", { timeout: 6000 });
-        return { executed: true, stateChanged: true };
+        return { executed: true, stateChanged: true, popup: false };
       }
       try {
         await element.click({ timeout: 6000 });
@@ -99,14 +101,15 @@ async function act(
       }
     }
   } catch {
-    return { executed: false, stateChanged: false };
+    return { executed: false, stateChanged: false, popup: false };
   }
+  const actedAt = Date.now();
 
   try {
     await page.waitForURL((u) => u.toString() !== urlBefore, { timeout: 5000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(1200);
-    return { executed: true, stateChanged: true };
+    return { executed: true, stateChanged: true, popup: popupAfterAction(page, startedAt, actedAt) };
   } catch {
     // no navigation
   }
@@ -114,10 +117,10 @@ async function act(
   await page.waitForTimeout(1500);
   if (page.url() !== urlBefore) {
     await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
-    return { executed: true, stateChanged: true };
+    return { executed: true, stateChanged: true, popup: popupAfterAction(page, startedAt, actedAt) };
   }
   const bodyAfter = await pageText(page);
-  return { executed: true, stateChanged: bodyBefore !== bodyAfter };
+  return { executed: true, stateChanged: bodyBefore !== bodyAfter, popup: popupAfterAction(page, startedAt, actedAt) };
 }
 
 // ---- Expectation check, without the model ----
@@ -254,8 +257,8 @@ async function verifyRoute(
   let i = 0;
   let outcome: RouteOutcome | null = null;
   let blockReason = "";
-  // The route left the analyzed site: it ends there (step-guard.ts).
-  let leftSite = "";
+  // Why the route ended early, from routeExit (step-guard.ts).
+  let exitDetail = "";
 
   let replansBeforeAction = 0;
 
@@ -340,17 +343,15 @@ async function verifyRoute(
       const done = await act(page, step, element);
       const state = await captureState(page);
 
-      // Left the analyzed site? A page link can't take the agent to another domain and still count as
-      // this site's flow.
-      const offSite = sameSite(siteUrl, page.url())
-        ? null
-        : `Left the analyzed site for ${siteHost(page.url()) ?? "another page"}.`;
-
-      const block = offSite ? null : await detectBlock(page, goal);
-
       const { check, checks } = await checkExpectation(page, step, urlBefore, textBefore, done.stateChanged, plan[i + 1]);
-      const whatHappened = offSite
-        ? offSite
+
+      // Left the analyzed site or handed over to a popup? The agent stops there either way.
+      const exit = routeExit(siteUrl, page.url(), done.popup, checks.urlChanged);
+
+      const block = exit ? null : await detectBlock(page, goal);
+
+      const whatHappened = exit
+        ? `${exit.detail}.`
         : block
         ? block
         : !done.executed
@@ -363,13 +364,13 @@ async function verifyRoute(
       results.push({
         step, plan: planNumber, found, executed: done.executed, stateChanged: done.stateChanged, check, checks,
         actualUrl: state.url, actualTitle: state.title, screenshot: state.screenshot,
-        realFriction: offSite || !done.executed ? 1 : check === "diverged" ? 0.7 : check === "partial" ? 0.3 : 0,
+        realFriction: exit?.outcome === "continues" ? 0 : exit || !done.executed ? 1 : check === "diverged" ? 0.7 : check === "partial" ? 0.3 : 0,
         whatHappened,
       });
 
-      if (offSite) {
-        outcome = "unreachable";
-        leftSite = offSite;
+      if (exit) {
+        outcome = exit.outcome;
+        exitDetail = exit.detail;
         break;
       }
       if (block) {
@@ -408,8 +409,8 @@ async function verifyRoute(
     const partials = path.filter((r) => r.check === "partial").length;
 
     // Penalizes the ending, extra steps and partly met expectations. Re-plans don't add: they're the
-    // engine's, not the site's.
-    const endPenalty = finalOutcome === "reached" ? 0 : finalOutcome === "blocked" ? 0.6 : 1;
+    // engine's, not the site's. A handoff adds nothing either: the rest of the flow was never measured.
+    const endPenalty = finalOutcome === "reached" || finalOutcome === "continues" ? 0 : finalOutcome === "blocked" ? 0.6 : 1;
     const lengthPenalty = Math.max(0, (completed - 2) * 0.1);
     const realFriction = Math.min(1, endPenalty + lengthPenalty + partials * 0.05);
 
@@ -420,6 +421,7 @@ async function verifyRoute(
       realFriction,
       reachedGoal: finalOutcome === "reached",
       outcome: finalOutcome,
+      continuation: finalOutcome === "continues" ? exitDetail : undefined,
       replanned: planNumber > 0,
       replanCount: planNumber,
       replansBeforeAction,
@@ -434,9 +436,11 @@ async function verifyRoute(
             : `Reached the end of the route in ${completed} steps, ending on "${finalState.title}", but the goal could not be confirmed on that page.`
           : finalOutcome === "blocked"
             ? `Blocked after ${completed} steps: ${blockReason}`
-            : leftSite
-              ? `Stopped after ${completed} steps: ${leftSite}`
-              : `No path to the goal after ${planNumber} re-plan${planNumber === 1 ? "" : "s"} (${completed} steps completed).`,
+            : finalOutcome === "continues"
+              ? `${exitDetail} after ${path.length} step${path.length === 1 ? "" : "s"}. Spector can't follow it from there, so the rest of the flow wasn't measured.`
+              : exitDetail
+                ? `Stopped after ${completed} steps: ${exitDetail}`
+                : `No path to the goal after ${planNumber} re-plan${planNumber === 1 ? "" : "s"} (${completed} steps completed).`,
     };
   } catch (error) {
     await page.close().catch(() => {});
@@ -481,6 +485,7 @@ async function compareRoutes(
     predictedFriction: r.predictedFriction,
     verified: r.verified,
     outcome: r.outcome,
+    continuation: r.continuation,
     replanCount: r.replanCount,
     realFriction: r.realFriction,
     reachedGoal: r.reachedGoal,

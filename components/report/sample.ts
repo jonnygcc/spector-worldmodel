@@ -2,6 +2,7 @@
 
 // SUCCESS and FRICTION only exist in the World Model (never executed); BLOCKED applies to both.
 // "unverified" is missing evidence, not an outcome: the plan ended but the goal signals weren't found.
+// "continues" isn't a failure: the flow went where Spector can't follow.
 export type Status =
   | "recommended"
   | "executed"
@@ -9,7 +10,8 @@ export type Status =
   | "unreachable"
   | "success"
   | "friction"
-  | "unverified";
+  | "unverified"
+  | "continues";
 export type Friction = "low" | "medium" | "high";
 
 // `screenshot` only exists on browser-verified routes. `unreached` is computed by withReach
@@ -23,7 +25,7 @@ export type Step = {
 
 export type Route = {
   user: string;
-  // World Model: scenario kind, shown in gray under the name.
+  // World Model: scenario kind. Agent: where a "continues" route went. Shown in gray under the name.
   subtitle?: string;
   time: string;
   probability: string;

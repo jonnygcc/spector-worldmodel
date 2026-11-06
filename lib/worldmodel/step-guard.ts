@@ -70,8 +70,8 @@ export function sanitizeSteps(raw: unknown, max: number): RouteStep[] {
     .map((step, i) => ({ ...step, order: i + 1 }));
 }
 
-// No public suffix list: same host or one a subdomain of the other (without "www."). A login on another
-// domain cuts the route, the price of never letting a page send the agent elsewhere.
+// No public suffix list: same host or one a subdomain of the other (without "www."). The route stops at
+// another domain so a page can't send the agent elsewhere; routeExit reports that as a handoff.
 export function siteHost(url: string): string | null {
   try {
     const { protocol, hostname } = new URL(url);
@@ -87,4 +87,22 @@ export function sameSite(siteUrl: string, url: string): boolean {
   const b = siteHost(url);
   if (!a || !b) return false;
   return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+export interface RouteExit {
+  outcome: "continues" | "unreachable";
+  detail: string;
+}
+
+// Another domain or a popup is a flow Spector can't follow, not a broken one. No host means the navigation
+// failed (chrome-error://), which is a real failure. A popup alongside a real navigation is noise: the
+// agent's own page moved on.
+export function routeExit(siteUrl: string, url: string, popup: boolean, urlChanged: boolean): RouteExit | null {
+  if (!sameSite(siteUrl, url)) {
+    const host = siteHost(url);
+    return host
+      ? { outcome: "continues", detail: `Continues on ${host}` }
+      : { outcome: "unreachable", detail: "Left the analyzed site for another page." };
+  }
+  return popup && !urlChanged ? { outcome: "continues", detail: "Continues in a popup" } : null;
 }

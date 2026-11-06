@@ -13,18 +13,25 @@ const MARKERS: Record<string, string[]> = {
   en: ["the", "and", "of", "to", "your", "with", "for", "our", "you", "how", "now", "free", "get"],
   fr: ["le", "les", "des", "et", "une", "pour", "avec", "vos", "votre", "nous", "sur", "gratuit"],
   de: ["der", "die", "das", "und", "mit", "für", "ihre", "wir", "sie", "jetzt", "kostenlos"],
-  it: ["il", "gli", "della", "delle", "per", "tuo", "tua", "ora", "più"],
+  it: ["il", "gli", "di", "che", "della", "delle", "alla", "dei", "nel", "per", "sono", "tuo", "tua", "ora", "più"],
 };
 const MIN_MARKERS = 3;
+const MIN_LEAD = 1.5;
 
-// A clear winner or nothing: a wrong guess is worse than "unknown", which asks for English signals.
+// A clear winner or nothing: a wrong guess is worse than "unknown", and this one overrules the page's lang.
 export function guessLanguage(text: string): string | null {
   const words = text.toLowerCase().match(/\p{L}+/gu) ?? [];
   const scores = Object.entries(MARKERS)
     .map(([language, markers]) => ({ language, hits: words.filter((word) => markers.includes(word)).length }))
     .sort((a, b) => b.hits - a.hits);
   const [best, second] = scores;
-  return best.hits >= MIN_MARKERS && best.hits > second.hits ? best.language : null;
+  return best.hits >= MIN_MARKERS && best.hits >= second.hits * MIN_LEAD ? best.language : null;
 }
 
-export const pageLanguage = (tag: unknown, text: string): string | null => languageFromTag(tag) ?? guessLanguage(text);
+// Templates ship lang="en" on Spanish sites, so the content decides and the attribute only fills in when it
+// can't. Languages without markers keep their attribute: Polish "to" and "do" would read as English.
+export function pageLanguage(tag: unknown, text: string): string | null {
+  const declared = languageFromTag(tag);
+  if (declared && !(declared in MARKERS)) return declared;
+  return guessLanguage(text) ?? declared;
+}

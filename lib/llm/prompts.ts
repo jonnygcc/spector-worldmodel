@@ -199,7 +199,7 @@ USER PERSONA:
 ${PAGE_DATA_RULES}
 
 page_data fields:
-- "routes": the routes, with predictions and, where available, real results. "goalVerified" says whether Spector confirmed, by checking the final page, that the goal was really completed.
+- "routes": the routes, with predictions and, where available, real results. "goalVerified" says whether Spector confirmed, by checking the final page, that the goal was really completed. "continuation" says where a route with "outcome": "continues" went.
 
 INSTRUCTIONS:
 1. Pick the BEST route: the one with the least real friction that actually reaches the goal
@@ -214,6 +214,7 @@ Rules for picking:
 - A route that fails to reach the goal can never be the best route
 - Only a route with "verified": true, "outcome": "reached" and "goalVerified": true can be the best route. If none, bestRouteId is null
 - If a route reached the end of its plan but "goalVerified" is false, say that its arrival could not be confirmed
+- "outcome": "continues" means the flow went on to another domain or a popup that Spector does not follow. It is NOT a failure: never call it blocked, broken, failed or unreachable. Say where it continues and that Spector could not measure the rest
 - If no route was verified, say so in the verdict
 
 Respond with JSON. Fields:

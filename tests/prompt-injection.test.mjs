@@ -7,12 +7,15 @@ import { fill, dataMessage, PAGE_DATA_RULES } from "../lib/llm/prompt-data.ts";
 import {
   ALLOWED_KEYS,
   MAX_TYPED_VALUE,
+  routeExit,
   sameSite,
   sanitizeStep,
   sanitizeSteps,
 } from "../lib/worldmodel/step-guard.ts";
 import { checkGoalEvidence, NO_SIGNALS, NO_STRUCTURE, normalizeSignals, pickBestRouteId } from "../lib/worldmodel/goal-evidence.ts";
 import { routesFromComparison, statusOf } from "../components/report/fromComparison.ts";
+import { withReach } from "../components/report/pathSteps.ts";
+import { happyPathOf } from "../lib/worldmodel/world-model-input.ts";
 import {
   EXTRACT_STATE_SCRIPT,
   MAX_HEADING,
@@ -104,6 +107,49 @@ describe("finding 5: sanitizeStep()", () => {
   test("sanitizeSteps drops invalid steps and renumbers", () => {
     const steps = sanitizeSteps([click, { type: "goto" }, { type: "press", value: "F12" }, { type: "scroll" }], 6);
     assert.deepEqual(steps.map((s) => [s.order, s.type]), [[1, "click"], [2, "scroll"]]);
+  });
+});
+
+describe("routeExit()", () => {
+  const site = "https://shop.example/";
+
+  test("another domain isn't a failure: it says where the flow continues", () => {
+    for (const [url, host] of [
+      ["https://checkout.shopify.com/c/1", "checkout.shopify.com"],
+      ["https://accounts.google.com/o/oauth2/auth", "accounts.google.com"],
+      ["https://checkout.stripe.com/pay/cs_1", "checkout.stripe.com"],
+    ]) {
+      assert.deepEqual(routeExit(site, url, false, true), { outcome: "continues", detail: `Continues on ${host}` });
+    }
+  });
+
+  test("the cut stays: every other domain ends the route", () => {
+    assert.notEqual(routeExit(site, "https://evil.test/", false, true), null);
+  });
+
+  test("the same site and its subdomains don't end it", () => {
+    assert.equal(routeExit(site, "https://shop.example/cart", false, true), null);
+    assert.equal(routeExit(site, "https://pay.shop.example/", false, true), null);
+  });
+
+  test("a navigation that failed to load is still a failure", () => {
+    assert.equal(routeExit(site, "chrome-error://chromewebdata/", false, true).outcome, "unreachable");
+    assert.equal(routeExit(site, "about:blank", false, true).outcome, "unreachable");
+  });
+
+  test("a popup from the agent's action, with the page still in place, continues in a popup", () => {
+    assert.deepEqual(routeExit(site, "https://shop.example/signup", true, false), {
+      outcome: "continues",
+      detail: "Continues in a popup",
+    });
+  });
+
+  test("a popup alongside a real navigation doesn't stop the agent's own page", () => {
+    assert.equal(routeExit(site, "https://shop.example/pricing", true, true), null);
+  });
+
+  test("no popup and no other domain: the route goes on", () => {
+    assert.equal(routeExit(site, "https://shop.example/signup", false, false), null);
   });
 });
 
@@ -203,6 +249,43 @@ describe("finding 1: goal evidence", () => {
     assert.equal(statusOf(engineRoute({ goalVerified: true }), "r1"), "recommended");
     assert.equal(statusOf(engineRoute({ goalVerified: true }), null), "executed");
     assert.equal(statusOf(engineRoute({ outcome: "blocked", reachedGoal: false }), null), "blocked");
+  });
+
+  const handoff = (continuation, overrides) =>
+    engineRoute({ outcome: "continues", reachedGoal: false, continuation, ...overrides });
+  const stepped = (overrides) => ({
+    step: { description: "Click Continue with Google" }, executed: true, stateChanged: true, check: "match", screenshot: "", ...overrides,
+  });
+
+  test("a route that continues elsewhere has its own status, with no failed step and with its destination", () => {
+    const route = handoff("Continues on stripe.com", {
+      stepResults: [stepped(), stepped({ stateChanged: false, check: "diverged" })],
+    });
+    assert.equal(statusOf(route, null), "continues");
+    const [row] = routesFromComparison({ routes: [route], bestRouteId: null });
+    assert.equal(row.status, "continues");
+    assert.equal(row.subtitle, "Continues on stripe.com");
+    assert.deepEqual(row.steps.map((s) => s.failed), [false, false]);
+    assert.deepEqual(withReach(row).map((s) => s.unreached), [undefined, undefined]);
+  });
+
+  test("a real dead end still fails, and has no destination", () => {
+    const route = engineRoute({
+      outcome: "unreachable", reachedGoal: false, stepResults: [stepped({ stateChanged: false, check: "diverged" })],
+    });
+    assert.equal(statusOf(route, null), "unreachable");
+    const [row] = routesFromComparison({ routes: [route], bestRouteId: null });
+    assert.equal(row.subtitle, undefined);
+    assert.equal(row.steps[0].failed, true);
+  });
+
+  test("a route that continues can't be recommended: nothing proves it arrives", () => {
+    assert.equal(pickBestRouteId([handoff("Continues in a popup", { goalVerified: true })], "r1"), null);
+  });
+
+  test("the world model reads where the route went, not a bare outcome", () => {
+    const route = handoff("Continues on accounts.google.com", { stepResults: [stepped()] });
+    assert.match(happyPathOf({ routes: [route], bestRouteId: null }), /\(outcome: Continues on accounts\.google\.com\)/);
   });
 });
 

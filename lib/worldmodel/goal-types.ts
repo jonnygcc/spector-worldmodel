@@ -210,8 +210,8 @@ export interface RouteStepResult {
 }
 
 // reached: arrived. blocked: stopped by the site (login, payment, bot check). unreachable: no path
-// after re-planning.
-export type RouteOutcome = "reached" | "blocked" | "unreachable";
+// after re-planning. continues: the flow goes on where Spector can't follow, so its end is unknown.
+export type RouteOutcome = "reached" | "blocked" | "unreachable" | "continues";
 
 export interface Route {
   id: string;
@@ -230,6 +230,8 @@ export interface Route {
   realFriction?: number;
   reachedGoal?: boolean;
   outcome?: RouteOutcome;
+  // Only on "continues" routes: where the flow went ("Continues on stripe.com", "Continues in a popup").
+  continuation?: string;
   // Whether the browser had to re-plan the route from the real page.
   replanned?: boolean;
   replanCount?: number;

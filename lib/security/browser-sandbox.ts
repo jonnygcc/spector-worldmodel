@@ -17,6 +17,9 @@ export const MAX_NAVIGATIONS_PER_PAGE = 30;
 // Page text brought back to the server to compare states.
 export const MAX_PAGE_TEXT = 100_000;
 
+// Browsers only allow window.open for about this long after a gesture, so anything later isn't the agent's.
+export const POPUP_AFTER_ACTION_MS = 5_000;
+
 // No permission prompts: camera, microphone, location, notifications, clipboard… are denied.
 export const SANDBOX_ARGS = ["--deny-permission-prompts"];
 
@@ -24,6 +27,8 @@ export const SANDBOX_ARGS = ["--deny-permission-prompts"];
 export function resolveChromiumPath(): string {
   return process.env.SPECTOR_CHROMIUM_PATH || chromium.executablePath();
 }
+
+const popupTimes = new WeakMap<Page, number[]>();
 
 // A fresh context per page: no cookies, storage or cache from another page or analysis.
 export async function newSandboxedPage(browser: Browser): Promise<Page> {
@@ -38,8 +43,12 @@ export async function newSandboxedPage(browser: Browser): Promise<Page> {
   const page = await context.newPage();
 
   // Popups (window.open, target="_blank") close on open: the agent only acts on its own page.
+  const popups: number[] = [];
+  popupTimes.set(page, popups);
   context.on("page", (popup) => {
-    if (popup !== page) void popup.close().catch(() => {});
+    if (popup === page) return;
+    popups.push(Date.now());
+    void popup.close().catch(() => {});
   });
   // Once a listener is registered Playwright stops auto-dismissing dialogs, so it's done explicitly.
   page.on("dialog", (dialog) => void dialog.dismiss().catch(() => {}));
@@ -56,6 +65,10 @@ export async function newSandboxedPage(browser: Browser): Promise<Page> {
   page.on("close", () => void context.close().catch(() => {}));
   return page;
 }
+
+// Tells a popup the agent's action caused (OAuth, target="_blank") from one the page opened by itself.
+export const popupAfterAction = (page: Page, startedAt: number, actedAt: number): boolean =>
+  (popupTimes.get(page) ?? []).some((at) => at >= startedAt && at <= actedAt + POPUP_AFTER_ACTION_MS);
 
 export async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;

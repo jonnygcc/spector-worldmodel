@@ -80,7 +80,8 @@ export function happyPathOf(comparison: Pick<RouteComparison, "routes" | "bestRo
   const steps = (route.stepResults ?? [])
     .filter((r) => !r.discarded)
     .map((r, i) => `${i + 1}. ${r.step.description}`);
-  const outcome = route.outcome ? ` (outcome: ${route.outcome})` : "";
+  const ending = route.continuation ?? route.outcome;
+  const outcome = ending ? ` (outcome: ${ending})` : "";
   const text = `${route.name ?? route.entryPoint}${outcome}\n${steps.join("\n") || "(no steps recorded)"}`;
   return truncate(text, HAPPY_PATH_MAX);
 }

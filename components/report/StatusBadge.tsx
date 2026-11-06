@@ -10,6 +10,8 @@ const STYLE: Record<Status, string> = {
   friction: "bg-warning-10 text-warning",
   // About evidence, not outcome: a neutral outline with no fill, so it doesn't read as another result.
   unverified: "bg-transparent text-neutral-600 ring-1 ring-inset ring-neutral-400",
+  // Not a result either, but the flow is alive: an outline, and none of the failure colors.
+  continues: "bg-transparent text-accent ring-1 ring-inset ring-accent",
 };
 
 const MEANING: Record<Status, string> = {
@@ -20,6 +22,7 @@ const MEANING: Record<Status, string> = {
   success: "Predicted to reach the goal.",
   friction: "Predicted to reach the goal, with friction along the way.",
   unverified: "Reached the end of the route, but Spector couldn't confirm the goal on the final page.",
+  continues: "The flow goes on where Spector can't follow it, so the rest wasn't measured. This isn't a problem with the site.",
 };
 
 // The same status reads differently by source: a World Model BLOCKED is a prediction.

@@ -6,6 +6,8 @@ export const MAX_HEADING = 150;
 export const MAX_HEADINGS = 15;
 export const MAX_LABEL = 70;
 export const MAX_ELEMENTS = 100;
+// Enough prose to tell the language; never leaves the server.
+export const MAX_LANGUAGE_SAMPLE = 5000;
 // Caps the DOM work: a page with hundreds of thousands of nodes doesn't multiply each script's cost.
 export const MAX_TAGGED = 2000;
 export const MAX_HEADINGS_SCANNED = 200;
@@ -110,6 +112,7 @@ export const EXTRACT_STATE_SCRIPT = `
   // elements, no products.
   return {
     lang: document.documentElement.getAttribute('lang'),
+    text: document.body ? document.body.innerText.slice(0, ${MAX_LANGUAGE_SAMPLE}) : '',
     headings: headings,
     interactiveElements: interactiveElements.slice(0, ${MAX_ELEMENTS})
   };

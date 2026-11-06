@@ -14,6 +14,8 @@ import {
   evaluateWithTimeout,
   MAX_NAVIGATIONS_PER_PAGE,
   newSandboxedPage,
+  POPUP_AFTER_ACTION_MS,
+  popupAfterAction,
   resolveChromiumPath,
   SANDBOX_ARGS,
   trackBrowser,
@@ -95,6 +97,10 @@ describe("browser", { skip: !fs.existsSync(CHROMIUM) && "Chromium is not install
       "/download": null,
       "/download-page": `<a id="d" href="/download">file</a>`,
       "/popup": `<h1>POPUP-PAGE</h1><script>window.open('/ok'); window.open('/ok', '_blank');</script>`,
+      "/oauth": `<button id="b" onclick="window.open('/ok', 'oauth', 'width=500,height=600')">Continue with Google</button>`,
+      "/blank": `<a id="b" href="/ok" target="_blank" rel="noopener">Docs</a>`,
+      "/quiet": `<button id="b">Nothing</button>`,
+      "/self-popup": `<button id="b">Nothing</button><script>window.open('/ok');</script>`,
       "/dialogs": `<script>alert('a'); window.__confirm = confirm('b'); window.__prompt = prompt('c'); document.title = 'after-dialogs';</script>`,
       "/loop": `<script>setTimeout(() => { location.href = '/loop?' + Date.now(); }, 20);</script>`,
       "/freeze": `<h1>FREEZE</h1><script>setTimeout(() => { while (true) {} }, 100);</script>`,
@@ -148,6 +154,48 @@ describe("browser", { skip: !fs.existsSync(CHROMIUM) && "Chromium is not install
     const onlyOne = await waitFor(() => context.pages().length === 1, 3000);
     assert.ok(onlyOne, `open pages: ${context.pages().length}`);
     assert.match(await page.content(), /POPUP-PAGE/);
+    await page.close();
+  });
+
+  // What act() does: note the time around the click, then ask whether a popup came from it.
+  const clickAndCheck = async (page) => {
+    const startedAt = Date.now();
+    await page.click("#b");
+    const actedAt = Date.now();
+    await page.waitForTimeout(500);
+    return { startedAt, actedAt, popup: popupAfterAction(page, startedAt, actedAt) };
+  };
+  const closesAlone = (page) => waitFor(() => page.context().pages().length === 1, 3000);
+
+  test("a popup from the agent's click is attributed to it, and still closes", async () => {
+    for (const path of ["/oauth", "/blank"]) {
+      const page = await open(path);
+      assert.equal((await clickAndCheck(page)).popup, true, path);
+      assert.ok(await closesAlone(page), path);
+      await page.close();
+    }
+  });
+
+  test("a window the page opened by itself isn't the agent's, and still closes", async () => {
+    const page = await open("/self-popup");
+    assert.ok(await waitFor(async () => popupAfterAction(page, 0, Date.now()), 3000), "the page's popup never opened");
+    assert.ok(await closesAlone(page));
+    assert.equal((await clickAndCheck(page)).popup, false);
+    await page.close();
+  });
+
+  test("a click that opens nothing reports no popup", async () => {
+    const page = await open("/quiet");
+    assert.equal((await clickAndCheck(page)).popup, false);
+    await page.close();
+  });
+
+  test("a popup long after the action isn't attributed to it", async () => {
+    const page = await open("/oauth");
+    const { startedAt, actedAt } = await clickAndCheck(page);
+    assert.equal(popupAfterAction(page, startedAt, actedAt), true);
+    const later = Date.now() + POPUP_AFTER_ACTION_MS + 1;
+    assert.equal(popupAfterAction(page, later, later), false);
     await page.close();
   });
 
