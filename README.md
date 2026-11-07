@@ -45,8 +45,7 @@ Each route carries a status, and the difference between them matters:
 | `FRICTION` | A predicted scenario where the user struggles but gets through |
 | `BLOCKED` | A predicted scenario where the user can't continue |
 
-Friction from the agent is measured. Friction from the world model is predicted — the
-ranking between scenarios is reliable, the exact number is not.
+Friction from the agent is measured. Friction from the world model is predicted.
 
 ## Setup
 
