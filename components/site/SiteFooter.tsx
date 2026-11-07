@@ -1,11 +1,7 @@
-import Link from "next/link";
 import SpectorLogo from "@/components/brand/SpectorLogo";
+import { EXTERNAL_LINK, SITE_LINKS } from "./links";
 
-const FOOTER_LINKS = [
-  { label: "GitHub", href: "#" },
-  { label: "Docs", href: "#" },
-  { label: "Medium", href: "#" },
-];
+const FOOTER_LINKS = [SITE_LINKS.github, SITE_LINKS.docs, SITE_LINKS.medium];
 
 export default function SiteFooter() {
   return (
@@ -16,13 +12,14 @@ export default function SiteFooter() {
         </div>
         <nav className="flex gap-24">
           {FOOTER_LINKS.map(({ label, href }) => (
-            <Link
+            <a
               key={label}
               href={href}
+              {...EXTERNAL_LINK}
               className="font-body text-body font-medium leading-sm text-neutral-700 hover:text-neutral-800"
             >
               {label}
-            </Link>
+            </a>
           ))}
         </nav>
       </div>

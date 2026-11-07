@@ -1,10 +1,8 @@
 import Link from "next/link";
 import SpectorLogo from "@/components/brand/SpectorLogo";
+import { EXTERNAL_LINK, SITE_LINKS } from "./links";
 
-const NAV_LINKS = [
-  { label: "Docs", href: "#" },
-  { label: "Medium", href: "#" },
-];
+const NAV_LINKS = [SITE_LINKS.docs, SITE_LINKS.medium];
 
 export default function SiteHeader() {
   return (
@@ -18,13 +16,14 @@ export default function SiteHeader() {
         </Link>
         <nav className="flex items-center gap-24">
           {NAV_LINKS.map(({ label, href }) => (
-            <Link
+            <a
               key={label}
               href={href}
+              {...EXTERNAL_LINK}
               className="font-body text-small font-medium leading-sm text-neutral-700 hover:text-neutral-800 lg:text-body"
             >
               {label}
-            </Link>
+            </a>
           ))}
         </nav>
       </div>
