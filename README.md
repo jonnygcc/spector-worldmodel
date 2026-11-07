@@ -77,7 +77,7 @@ isn't marked as failed, but nothing past the handoff is measured.
 
 **World model numbers are predictions, not measurements.** Re-running the same page and
 goal returns the cached result, so a number won't change under you. But a fresh
-prediction of the same page can land somewhere noticeably different — read them as a
+prediction of the same page can land somewhere noticeably different read them as a
 signal of which scenarios deserve a look, not as a score to track over time.
 
 **Bot detection stops the agent.** Sites behind Cloudflare, reCAPTCHA or similar may
@@ -85,7 +85,7 @@ block the browser before it gets anywhere.
 
 **Quota.** One analysis makes roughly 12 calls to Gemini. The free tier allows 15 per
 minute and 500 per day, so back-to-back runs will hit the limit. Spector says so instead
-of failing silently. Re-running the same page and goal is free — the prediction is
+of failing silently. Re-running the same page and goal is free the prediction is
 cached.
 
 **The model selector is not wired yet.** The dropdown shows where the project is going;
